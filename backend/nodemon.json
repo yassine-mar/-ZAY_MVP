@@ -1,0 +1,9 @@
+{
+  "watch": ["src", "migrations"],
+  "ext": "js,json",
+  "ignore": ["tests/", "node_modules/", "logs/"],
+  "delay": 500,
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
