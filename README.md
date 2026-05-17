@@ -149,7 +149,9 @@
 │   ├── 01_PRODUCT_VISION.md
 │   ├── 02_ARCHITECTURE.md
 │   ├── 03_DATABASE.md
+│   ├── 03_DATABASE_DESIGN.md
 │   ├── 04_API.md
+│   ├── 04_API_DESIGN.md
 │   ├── 05_AUTH.md
 │   ├── 06_MOBILE_UX.md
 │   ├── 07_WORKFLOWS.md
@@ -175,7 +177,9 @@
 | 01 | [Product Vision](docs/01_PRODUCT_VISION.md) | Vision, scope, MVP definition |
 | 02 | [Architecture](docs/02_ARCHITECTURE.md) | Full system architecture |
 | 03 | [Database](docs/03_DATABASE.md) | PostgreSQL schema, ERD, indexing |
-| 04 | [API Reference](docs/04_API.md) | All REST endpoints with examples |
+| 03+ | [Database Design](docs/03_DATABASE_DESIGN.md) | **Definitive** — improved schema, audit trail, amendments |
+| 04 | [API Reference](docs/04_API.md) | Basic endpoint reference |
+| 04+ | [API Design](docs/04_API_DESIGN.md) | **Definitive** — full architecture, middleware, critique |
 | 05 | [Authentication](docs/05_AUTH.md) | JWT strategy, roles, permissions |
 | 06 | [Mobile & UX](docs/06_MOBILE_UX.md) | Screens, navigation, design system |
 | 07 | [Workflows](docs/07_WORKFLOWS.md) | Order flow, notifications, uploads |
