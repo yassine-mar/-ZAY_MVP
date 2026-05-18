@@ -181,7 +181,8 @@
 | 04 | [API Reference](docs/04_API.md) | Basic endpoint reference |
 | 04+ | [API Design](docs/04_API_DESIGN.md) | **Definitive** — full architecture, middleware, critique |
 | 05 | [Authentication](docs/05_AUTH.md) | JWT strategy, roles, permissions |
-| 06 | [Mobile & UX](docs/06_MOBILE_UX.md) | Screens, navigation, design system |
+| 06 | [Mobile & UX](docs/06_MOBILE_UX.md) | Visual design, screens, design system |
+| 06+ | [Mobile Architecture](docs/06_MOBILE_ARCHITECTURE.md) | **Definitive** — engineering architecture, nav, state, critique |
 | 07 | [Workflows](docs/07_WORKFLOWS.md) | Order flow, notifications, uploads |
 | 08 | [DevOps](docs/08_DEVOPS.md) | Docker, CI/CD, deployment |
 | 09 | [Security](docs/09_SECURITY.md) | Security best practices |
