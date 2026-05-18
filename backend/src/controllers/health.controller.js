@@ -1,23 +1,26 @@
 'use strict';
 
 const { db } = require('../config/database');
+const logger = require('../utils/logger');
 
-const healthCheck = async (req, res) => {
+const VERSION = process.env.npm_package_version || '1.0.0';
+
+const healthCheck = async (_req, res) => {
   let dbStatus = 'connected';
   try {
     await db.query('SELECT 1');
-  } catch {
+  } catch (err) {
     dbStatus = 'disconnected';
+    logger.warn('Health check: DB unreachable', { error: err.message });
   }
 
-  const status = dbStatus === 'connected' ? 'healthy' : 'degraded';
-  const httpStatus = status === 'healthy' ? 200 : 503;
+  const healthy = dbStatus === 'connected';
 
-  res.status(httpStatus).json({
-    success: status === 'healthy',
+  res.status(healthy ? 200 : 503).json({
+    success: healthy,
     data: {
-      status,
-      version: process.env.npm_package_version || '1.0.0',
+      status: healthy ? 'healthy' : 'degraded',
+      version: VERSION,
       uptime: Math.floor(process.uptime()),
       db: dbStatus,
       timestamp: new Date().toISOString(),

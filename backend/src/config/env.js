@@ -4,6 +4,7 @@ const Joi = require('joi');
 
 const envSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'production', 'test').required(),
+  HOST: Joi.string().default('0.0.0.0'),
   PORT: Joi.number().integer().min(1).max(65535).default(5000),
 
   DATABASE_URL: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).required(),
@@ -30,14 +31,18 @@ const envSchema = Joi.object({
   .unknown(true)
   .required();
 
-const { error, value: env } = envSchema.validate(process.env);
+const { error, value: env } = envSchema.validate(process.env, { abortEarly: false });
 
 if (error) {
-  throw new Error(`\nMISSING ENV VAR: ${error.message}\n`);
+  const messages = error.details.map((d) => `  • ${d.message}`).join('\n');
+  // eslint-disable-next-line no-console
+  console.error(`\nENVIRONMENT VALIDATION FAILED:\n${messages}\n`);
+  process.exit(1);
 }
 
 module.exports = {
   NODE_ENV: env.NODE_ENV,
+  HOST: env.HOST,
   PORT: env.PORT,
   isProduction: env.NODE_ENV === 'production',
   isTest: env.NODE_ENV === 'test',
@@ -63,10 +68,11 @@ module.exports = {
   },
 
   corsOptions: {
-    origin: env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()),
+    origin: env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key'],
+    exposedHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'],
   },
 
   LOG_LEVEL: env.LOG_LEVEL,

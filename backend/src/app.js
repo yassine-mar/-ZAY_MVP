@@ -15,20 +15,31 @@ const AppError = require('./utils/AppError');
 const logger = require('./utils/logger');
 const apiRouter = require('./routes/index');
 
+const HEALTH_PATH = '/api/v1/health';
+
 const createApp = () => {
   const app = express();
   const httpServer = createServer(app);
 
   initSocket(httpServer);
 
-  app.use(morgan('combined', {
+  // Behind Nginx — trust the first proxy hop for req.ip and rate limiting.
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by');
+  app.disable('etag');
+
+  app.use(morgan(env.isProduction ? 'combined' : 'dev', {
     stream: { write: (msg) => logger.http(msg.trim()) },
-    skip: (req) => req.path === '/api/v1/health',
+    skip: (req) => req.path === HEALTH_PATH,
   }));
   app.use(requestId);
   app.use(cors(env.corsOptions));
-  app.use(helmet());
+  app.use(helmet({
+    // Allow cross-origin loading of images served by Cloudinary.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
   app.use(express.json({ limit: '10kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '10kb' }));
   app.use(globalLimiter);
 
   app.use('/api/v1', apiRouter);
