@@ -186,7 +186,8 @@
 | 06+ | [Mobile Architecture](docs/06_MOBILE_ARCHITECTURE.md) | **Definitive** — engineering architecture, nav, state, critique |
 | 07 | [Workflows](docs/07_WORKFLOWS.md) | Order flow, notifications, uploads |
 | 07+ | [Admin Architecture](docs/07_ADMIN_ARCHITECTURE.md) | **Definitive** — React+Vite+shadcn, tables, analytics, workflows |
-| 08 | [DevOps](docs/08_DEVOPS.md) | Docker, CI/CD, deployment |
+| 08 | [DevOps](docs/08_DEVOPS.md) | Original deployment notes |
+| 08+ | [Deployment Architecture](docs/08_DEPLOYMENT_ARCHITECTURE.md) | **Definitive** — VPS topology, CI/CD, hosting tiers, checklist |
 | 09 | [Security](docs/09_SECURITY.md) | Security best practices |
 | 10 | [Testing](docs/10_TESTING.md) | Unit, integration, API testing |
 | 11 | [Engineering](docs/11_ENGINEERING.md) | Conventions, Git workflow, UML |
