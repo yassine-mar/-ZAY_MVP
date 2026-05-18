@@ -189,7 +189,8 @@
 | 08 | [DevOps](docs/08_DEVOPS.md) | Original deployment notes |
 | 08+ | [Deployment Architecture](docs/08_DEPLOYMENT_ARCHITECTURE.md) | **Definitive** — VPS topology, CI/CD, hosting tiers, checklist |
 | 09 | [Security](docs/09_SECURITY.md) | Security best practices |
-| 10 | [Testing](docs/10_TESTING.md) | Unit, integration, API testing |
+| 10 | [Testing](docs/10_TESTING.md) | Original test examples |
+| 10+ | [Testing Strategy](docs/10_TESTING_STRATEGY.md) | **Definitive** — strategy, coverage tiers, manual QA, performance, security |
 | 11 | [Engineering](docs/11_ENGINEERING.md) | Conventions, Git workflow, UML |
 | 12 | [Planning](docs/12_PLANNING.md) | Sprints, timeline, risk analysis |
 | 13 | [Business](docs/13_BUSINESS.md) | SWOT, competitive analysis, roadmap |
