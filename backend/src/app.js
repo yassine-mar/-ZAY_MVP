@@ -9,6 +9,7 @@ const { createServer } = require('http');
 const env = require('./config/env');
 const { initSocket } = require('./config/socket');
 const requestId = require('./middleware/requestId');
+const requestLogger = require('./middleware/requestLogger');
 const { globalLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const AppError = require('./utils/AppError');
@@ -28,14 +29,23 @@ const createApp = () => {
   app.disable('x-powered-by');
   app.disable('etag');
 
+  // Order matters here:
+  //   1. morgan       — logs every request (skips /health)
+  //   2. requestId    — assigns req.requestId (honors upstream X-Request-Id)
+  //   3. requestLogger — opens AsyncLocalStorage context so any downstream
+  //                      code can call getRequestId() without param threading
+  //   4. cors         — must precede body parser (handles OPTIONS preflight)
+  //   5. helmet       — security headers on every response
+  //   6. body parsers — JSON + urlencoded, both capped at 10kb
+  //   7. globalLimiter — rate limit, after parsers so 429s have requestId
   app.use(morgan(env.isProduction ? 'combined' : 'dev', {
     stream: { write: (msg) => logger.http(msg.trim()) },
     skip: (req) => req.path === HEALTH_PATH,
   }));
   app.use(requestId);
+  app.use(requestLogger);
   app.use(cors(env.corsOptions));
   app.use(helmet({
-    // Allow cross-origin loading of images served by Cloudinary.
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   }));
   app.use(express.json({ limit: '10kb' }));

@@ -3,22 +3,38 @@
 const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const env = require('../config/env');
+const { getRequestId } = require('./requestContext');
 
-const { combine, timestamp, colorize, printf, json, errors, splat } = winston.format;
+const { combine, timestamp, colorize, printf, json, errors, splat, format } = winston.format;
+
+/**
+ * Auto-tag every log line with the current request's requestId
+ * (pulled from AsyncLocalStorage). Outside a request, no-op.
+ */
+const addRequestId = format((info) => {
+  if (!info.requestId) {
+    const rid = getRequestId();
+    if (rid) info.requestId = rid;
+  }
+  return info;
+});
 
 const devFormat = combine(
+  addRequestId(),
   colorize({ all: true }),
   timestamp({ format: 'HH:mm:ss.SSS' }),
   errors({ stack: true }),
   splat(),
-  printf(({ level, message, timestamp: ts, stack, ...meta }) => {
+  printf(({ level, message, timestamp: ts, stack, requestId, ...meta }) => {
+    const reqStr = requestId ? ` [${String(requestId).slice(0, 8)}]` : '';
     const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
     const stackStr = stack ? `\n${stack}` : '';
-    return `${ts} ${level}: ${message}${metaStr}${stackStr}`;
+    return `${ts}${reqStr} ${level}: ${message}${metaStr}${stackStr}`;
   })
 );
 
 const prodFormat = combine(
+  addRequestId(),
   timestamp(),
   errors({ stack: true }),
   splat(),
