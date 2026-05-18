@@ -192,6 +192,7 @@
 | 11 | [Engineering](docs/11_ENGINEERING.md) | Conventions, Git workflow, UML |
 | 12 | [Planning](docs/12_PLANNING.md) | Sprints, timeline, risk analysis |
 | 13 | [Business](docs/13_BUSINESS.md) | SWOT, competitive analysis, roadmap |
+| 14 | [Design System](docs/14_DESIGN_SYSTEM.md) | **Definitive** — brand, tokens, components, accessibility, Moroccan inspiration |
 
 ---
 
