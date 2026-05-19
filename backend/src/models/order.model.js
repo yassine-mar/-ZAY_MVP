@@ -2,53 +2,65 @@
 
 const { query } = require('./base.model');
 
-/** @returns {Promise<object>} created order row with items */
-const create = async ({ customerId, sellerId, totalAmount, paymentMethod, deliveryAddress, customerNotes }, client) => {
-  // TODO: INSERT INTO orders (...) VALUES (...) RETURNING *
-  throw new Error('Not implemented');
+/**
+ * Count of orders for a customer that are NOT in a terminal state.
+ * Used by UserService.deleteMe to block deletion when active orders exist.
+ *
+ * Defensive against the orders table not yet existing (relation code 42P01) —
+ * this allows the user feature to function before the orders feature ships.
+ * Once the orders migration is applied, the defensive branch is never hit.
+ */
+const countActiveByCustomer = async (customerId) => {
+  try {
+    const result = await query(
+      `SELECT COUNT(*)::int AS count
+       FROM orders
+       WHERE customer_id = $1
+         AND status NOT IN ('delivered', 'cancelled')`,
+      [customerId]
+    );
+    return result.rows[0].count;
+  } catch (err) {
+    if (err.code === '42P01') return 0; // orders table not yet migrated
+    throw err;
+  }
 };
 
-/** @returns {Promise<object>} created order_item row */
-const createItem = async ({ orderId, menuItemId, name, price, quantity }, client) => {
-  // TODO: INSERT INTO order_items (id, order_id, menu_item_id, name, price, quantity, subtotal) VALUES (...) RETURNING *
+// ── Order feature functions — implemented in the orders feature step ──────
+
+const create = async (_input, _client) => {
   throw new Error('Not implemented');
 };
-
-/** @returns {Promise<object|null>} order with items and seller info */
-const findById = async (id) => {
-  // TODO: SELECT orders.*, json_agg(order_items.*) as items, seller row FROM orders JOIN ...
+const createItem = async (_input, _client) => {
   throw new Error('Not implemented');
 };
-
-/** @returns {Promise<{ items: object[], total: number }>} */
-const findByCustomer = async ({ customerId, status, fromDate, toDate, page, limit }) => {
-  // TODO: paginated SELECT with customer_id = $1 filter
+const findById = async (_id) => {
   throw new Error('Not implemented');
 };
-
-/** @returns {Promise<{ items: object[], total: number }>} */
-const findBySeller = async ({ sellerId, status, fromDate, toDate, page, limit }) => {
-  // TODO: paginated SELECT with seller join and filters
+const findByCustomer = async (_filters) => {
   throw new Error('Not implemented');
 };
-
-/** @returns {Promise<object>} updated order row */
-const updateStatus = async (id, { status, estimatedReadyAt, note }, client) => {
-  // TODO: UPDATE orders SET status = $2, updated_at = NOW(), (conditional lifecycle timestamps) WHERE id = $1
-  // NOTE: order_status_history is populated by DB trigger automatically
+const findBySeller = async (_filters) => {
   throw new Error('Not implemented');
 };
-
-/** @returns {Promise<object[]>} orders pending > 30 minutes for auto-cancel cron */
+const updateStatus = async (_id, _patch, _client) => {
+  throw new Error('Not implemented');
+};
 const findPendingExpired = async () => {
-  // TODO: SELECT * FROM orders WHERE status = 'pending' AND created_at < NOW() - INTERVAL '30 minutes'
+  throw new Error('Not implemented');
+};
+const getStatusHistory = async (_orderId) => {
   throw new Error('Not implemented');
 };
 
-/** @returns {Promise<object[]>} full status history for one order */
-const getStatusHistory = async (orderId) => {
-  // TODO: SELECT * FROM order_status_history WHERE order_id = $1 ORDER BY changed_at ASC
-  throw new Error('Not implemented');
+module.exports = {
+  countActiveByCustomer,
+  create,
+  createItem,
+  findById,
+  findByCustomer,
+  findBySeller,
+  updateStatus,
+  findPendingExpired,
+  getStatusHistory,
 };
-
-module.exports = { create, createItem, findById, findByCustomer, findBySeller, updateStatus, findPendingExpired, getStatusHistory };

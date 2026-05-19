@@ -44,8 +44,28 @@ const create = async (
   return result.rows[0];
 };
 
-// ── Seller management functions (used by admin feature, not auth) ─────────
-// Kept as stubs here — implemented in the seller management feature step.
+/**
+ * Suspend the seller profile owned by `userId` (if any).
+ * Called by UserService.deleteMe to prevent a deleted user's seller profile
+ * from remaining listed as approved.
+ * Idempotent — already-suspended profiles are not touched.
+ */
+const markSuspendedByUserId = async (userId, reason, client = null) => {
+  const sql = `
+    UPDATE seller_profiles
+    SET status = 'suspended',
+        suspended_at = NOW(),
+        suspension_reason = $1
+    WHERE user_id = $2 AND status <> 'suspended'
+    RETURNING id
+  `;
+  const result = client
+    ? await client.query(sql, [reason, userId])
+    : await query(sql, [reason, userId]);
+  return result.rows[0] || null;
+};
+
+// ── Seller management functions (used by admin/seller features, not auth) ─
 
 const update = async (_id, _fields) => {
   throw new Error('Not implemented');
@@ -70,6 +90,7 @@ module.exports = {
   findById,
   findByUserId,
   create,
+  markSuspendedByUserId,
   update,
   approve,
   reject,

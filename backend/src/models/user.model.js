@@ -5,7 +5,7 @@ const { query } = require('./base.model');
 /**
  * Columns safe to return to the application layer.
  * `password_hash` is intentionally excluded — only `findByEmailWithPassword`
- * returns it, and only for the login flow.
+ * and `findByIdWithPassword` return it.
  */
 const SAFE_COLUMNS = `
   id, name, email, phone, role, status,
@@ -17,6 +17,16 @@ const findById = async (id, client = null) => {
   const runner = client || { query };
   const result = await runner.query(
     `SELECT ${SAFE_COLUMNS}
+     FROM users
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  return result.rows[0] || null;
+};
+
+const findByIdWithPassword = async (id) => {
+  const result = await query(
+    `SELECT ${SAFE_COLUMNS}, password_hash
      FROM users
      WHERE id = $1 AND deleted_at IS NULL`,
     [id]
@@ -53,21 +63,49 @@ const create = async ({ name, email, phone, passwordHash, role }, client = null)
   return result.rows[0];
 };
 
-const update = async (id, fields) => {
-  const keys = Object.keys(fields);
-  if (keys.length === 0) return findById(id);
+const ALLOWED_UPDATE_FIELDS = new Set([
+  'name',
+  'phone',
+  'avatar_url',
+  'avatar_public_id',
+]);
+
+/**
+ * Generic UPDATE for non-sensitive fields. Filters at the model level
+ * (defense in depth — services should also filter, but this is the
+ * authoritative boundary).
+ * Never updates: email, role, status, password_hash, fcm_token, deleted_at.
+ */
+const update = async (id, fields, client = null) => {
+  const keys = Object.keys(fields).filter((k) => ALLOWED_UPDATE_FIELDS.has(k));
+  if (keys.length === 0) return findById(id, client);
 
   const setClauses = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
   const values = keys.map((k) => fields[k]);
 
-  const result = await query(
-    `UPDATE users
-     SET ${setClauses}
-     WHERE id = $1 AND deleted_at IS NULL
-     RETURNING ${SAFE_COLUMNS}`,
-    [id, ...values]
-  );
+  const sql = `
+    UPDATE users
+    SET ${setClauses}
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING ${SAFE_COLUMNS}
+  `;
+  const result = client
+    ? await client.query(sql, [id, ...values])
+    : await query(sql, [id, ...values]);
   return result.rows[0] || null;
+};
+
+const updatePassword = async (id, passwordHash, client = null) => {
+  const sql = `
+    UPDATE users
+    SET password_hash = $1
+    WHERE id = $2 AND deleted_at IS NULL
+  `;
+  if (client) {
+    await client.query(sql, [passwordHash, id]);
+  } else {
+    await query(sql, [passwordHash, id]);
+  }
 };
 
 const updateFcmToken = async (id, fcmToken) => {
@@ -78,8 +116,13 @@ const clearFcmToken = async (id) => {
   await query('UPDATE users SET fcm_token = NULL WHERE id = $1', [id]);
 };
 
-const softDelete = async (id) => {
-  await query('UPDATE users SET deleted_at = NOW() WHERE id = $1', [id]);
+const softDelete = async (id, client = null) => {
+  const sql = 'UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL';
+  if (client) {
+    await client.query(sql, [id]);
+  } else {
+    await query(sql, [id]);
+  }
 };
 
 const getFcmToken = async (id) => {
@@ -92,10 +135,12 @@ const getFcmToken = async (id) => {
 
 module.exports = {
   findById,
+  findByIdWithPassword,
   findByEmailWithPassword,
   existsByEmail,
   create,
   update,
+  updatePassword,
   updateFcmToken,
   clearFcmToken,
   softDelete,
