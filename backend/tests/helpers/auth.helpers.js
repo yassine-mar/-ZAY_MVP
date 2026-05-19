@@ -1,7 +1,9 @@
 'use strict';
 
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const { db } = require('../../src/config/database');
+const env = require('../../src/config/env');
 
 const FAST_BCRYPT_ROUNDS = 4; // tests don't need cost factor 12
 
@@ -58,8 +60,27 @@ const createTestSeller = async ({ sellerStatus = 'approved', ...userOverrides } 
   return { user, sellerProfile: sellerResult.rows[0] };
 };
 
+const createTestAdmin = async (overrides = {}) =>
+  createTestUser({ ...overrides, role: 'admin', name: overrides.name || 'Test Admin' });
+
+/**
+ * Sign an admin JWT directly without going through the login flow.
+ * Use this when a test exercises an admin endpoint and doesn't need to
+ * verify the admin login plumbing itself.
+ */
+const generateAdminToken = (user) =>
+  jwt.sign(
+    { sub: user.id, role: 'admin', isAdmin: true },
+    env.ADMIN_JWT_SECRET,
+    { algorithm: 'HS256', expiresIn: env.ADMIN_JWT_EXPIRES_IN }
+  );
+
 const truncateAuthTables = async () => {
   await db.query('TRUNCATE TABLE refresh_tokens, seller_profiles, users RESTART IDENTITY CASCADE');
+};
+
+const truncateCategoriesTable = async () => {
+  await db.query('TRUNCATE TABLE categories RESTART IDENTITY CASCADE');
 };
 
 module.exports = {
@@ -67,5 +88,8 @@ module.exports = {
   buildSellerRegisterPayload,
   createTestUser,
   createTestSeller,
+  createTestAdmin,
+  generateAdminToken,
   truncateAuthTables,
+  truncateCategoriesTable,
 };

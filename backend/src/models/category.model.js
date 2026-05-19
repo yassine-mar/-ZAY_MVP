@@ -2,40 +2,94 @@
 
 const { query } = require('./base.model');
 
-/** @returns {Promise<object[]>} all active categories */
+const COLUMNS = 'id, name, slug, icon, sort_order, is_active, created_at, updated_at';
+
+const findActive = async () => {
+  const result = await query(
+    `SELECT ${COLUMNS}
+     FROM categories
+     WHERE is_active = TRUE
+     ORDER BY sort_order ASC, name ASC`
+  );
+  return result.rows;
+};
+
 const findAll = async () => {
-  // TODO: SELECT * FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC, name ASC
-  throw new Error('Not implemented');
+  const result = await query(
+    `SELECT ${COLUMNS}
+     FROM categories
+     ORDER BY is_active DESC, sort_order ASC, name ASC`
+  );
+  return result.rows;
 };
 
-/** @returns {Promise<object[]>} all categories including inactive (admin) */
-const findAllAdmin = async () => {
-  // TODO: SELECT * FROM categories ORDER BY sort_order ASC
-  throw new Error('Not implemented');
-};
-
-/** @returns {Promise<object|null>} */
 const findById = async (id) => {
-  // TODO: SELECT * FROM categories WHERE id = $1
-  throw new Error('Not implemented');
+  const result = await query(
+    `SELECT ${COLUMNS} FROM categories WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
 };
 
-/** @returns {Promise<object>} created category */
-const create = async ({ name, slug, icon, isActive }) => {
-  // TODO: INSERT INTO categories (id, name, slug, icon, is_active) VALUES (...) RETURNING *
-  throw new Error('Not implemented');
+const findBySlug = async (slug) => {
+  const result = await query(
+    `SELECT ${COLUMNS} FROM categories WHERE slug = $1`,
+    [slug]
+  );
+  return result.rows[0] || null;
 };
 
-/** @returns {Promise<object>} updated category */
+const create = async ({ name, slug, icon, sortOrder, isActive }) => {
+  const result = await query(
+    `INSERT INTO categories (id, name, slug, icon, sort_order, is_active)
+     VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5)
+     RETURNING ${COLUMNS}`,
+    [name, slug, icon || null, sortOrder ?? 0, isActive ?? true]
+  );
+  return result.rows[0];
+};
+
+const ALLOWED_UPDATE_FIELDS = new Set(['name', 'slug', 'icon', 'sort_order', 'is_active']);
+
 const update = async (id, fields) => {
-  // TODO: dynamic UPDATE
-  throw new Error('Not implemented');
+  const entries = Object.entries(fields).filter(([k]) => ALLOWED_UPDATE_FIELDS.has(k));
+  if (entries.length === 0) return findById(id);
+
+  const setClauses = entries.map(([k], i) => `${k} = $${i + 2}`).join(', ');
+  const values = entries.map(([, v]) => v);
+
+  const result = await query(
+    `UPDATE categories
+     SET ${setClauses}
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id, ...values]
+  );
+  return result.rows[0] || null;
 };
 
-/** @returns {Promise<void>} deactivate (not hard delete) */
+/**
+ * Soft delete via is_active = FALSE.
+ * Returns the updated row (or null if not found).
+ * Idempotent — calling on an already-inactive category is a no-op (returns the row).
+ */
 const deactivate = async (id) => {
-  // TODO: UPDATE categories SET is_active = FALSE WHERE id = $1
-  throw new Error('Not implemented');
+  const result = await query(
+    `UPDATE categories
+     SET is_active = FALSE
+     WHERE id = $1
+     RETURNING ${COLUMNS}`,
+    [id]
+  );
+  return result.rows[0] || null;
 };
 
-module.exports = { findAll, findAllAdmin, findById, create, update, deactivate };
+module.exports = {
+  findActive,
+  findAll,
+  findById,
+  findBySlug,
+  create,
+  update,
+  deactivate,
+};

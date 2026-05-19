@@ -1,29 +1,29 @@
 'use strict';
 
-const CategoryModel = require('../../models/category.model');
-const AppError = require('../../utils/AppError');
-const { sendSuccess } = require('../../utils/response');
+const CategoryAdminService = require('../../services/admin/category.admin.service');
+const { sendOk, sendCreated } = require('../../utils/response');
+const { serializeCategoryAdmin } = require('../../utils/serializers/category.serializer');
 
-const getCategories = async (req, res) => {
-  const categories = await CategoryModel.findAllAdmin();
-  sendSuccess(res, 200, 'Categories fetched', { categories });
+const getCategories = async (_req, res) => {
+  const categories = await CategoryAdminService.listAll();
+  sendOk(res, 'Categories fetched', {
+    categories: categories.map(serializeCategoryAdmin),
+  });
 };
 
 const createCategory = async (req, res) => {
-  // TODO: Service layer for uniqueness check on slug
-  const category = await CategoryModel.create(req.body);
-  sendSuccess(res, 201, 'Category created', { category });
+  const category = await CategoryAdminService.create(req.body);
+  sendCreated(res, 'Category created', { category: serializeCategoryAdmin(category) });
 };
 
 const updateCategory = async (req, res) => {
-  const category = await CategoryModel.update(req.params.id, req.body);
-  if (!category) throw new AppError(404, 'NOT_FOUND', 'Category not found');
-  sendSuccess(res, 200, 'Category updated', { category });
+  const category = await CategoryAdminService.update(req.params.id, req.body);
+  sendOk(res, 'Category updated', { category: serializeCategoryAdmin(category) });
 };
 
 const deleteCategory = async (req, res) => {
-  await CategoryModel.deactivate(req.params.id);
-  sendSuccess(res, 200, 'Category deactivated', {});
+  const category = await CategoryAdminService.deactivate(req.params.id);
+  sendOk(res, 'Category deactivated', { category: serializeCategoryAdmin(category) });
 };
 
 module.exports = { getCategories, createCategory, updateCategory, deleteCategory };

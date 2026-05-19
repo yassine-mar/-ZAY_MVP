@@ -1,11 +1,14 @@
 'use strict';
 
 const CategoryService = require('../services/category.service');
-const { sendSuccess } = require('../utils/response');
+const { sendOk } = require('../utils/response');
+const { serializeCategory } = require('../utils/serializers/category.serializer');
 
-const getCategories = async (req, res) => {
-  const categories = await CategoryService.getCategories();
-  sendSuccess(res, 200, 'Categories fetched', { categories });
+const getCategories = async (_req, res) => {
+  const categories = await CategoryService.listActive();
+  sendOk(res, 'Categories fetched', {
+    categories: categories.map(serializeCategory),
+  });
 };
 
 module.exports = { getCategories };

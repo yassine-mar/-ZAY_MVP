@@ -2,10 +2,15 @@
 
 const CategoryModel = require('../models/category.model');
 
-/** @returns {Promise<object[]>} */
-const getCategories = async () => {
-  // TODO: CategoryModel.findAll()
-  throw new Error('Not implemented');
-};
+/**
+ * Public read-only service. Used by:
+ *   - GET /api/v1/categories            (customer browse)
+ *   - GET /api/v1/browse/categories     (alt path — same data)
+ *
+ * Returns only active categories, sorted by sort_order then name.
+ */
+const listActive = async () => CategoryModel.findActive();
 
-module.exports = { getCategories };
+const getBySlug = async (slug) => CategoryModel.findBySlug(slug);
+
+module.exports = { listActive, getBySlug };
