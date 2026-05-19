@@ -7,21 +7,27 @@ const CITIES = ['Casablanca', 'Rabat', 'Marrakech', 'Fes', 'Agadir', 'Tanger', '
 
 const passwordRules = Joi.string()
   .min(8)
-  .max(72)
+  .max(72) // bcrypt's hard max — anything longer is truncated, so reject it explicitly
   .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/)
   .required()
   .messages({
     'string.pattern.base':
       'Password must contain at least one uppercase letter, one number, and one special character',
+    'string.max': 'Password must be 72 characters or fewer',
+  });
+
+const phoneRules = Joi.string()
+  .pattern(MOROCCAN_PHONE)
+  .required()
+  .messages({
+    'string.pattern.base': 'Must be a valid Moroccan phone number (+212XXXXXXXXX)',
   });
 
 const registerSchema = Joi.object({
   body: Joi.object({
-    name: Joi.string().min(2).max(100).required(),
+    name: Joi.string().trim().min(2).max(100).required(),
     email: Joi.string().email().lowercase().max(255).required(),
-    phone: Joi.string().pattern(MOROCCAN_PHONE).required().messages({
-      'string.pattern.base': 'Must be a valid Moroccan phone number (+212XXXXXXXXX)',
-    }),
+    phone: phoneRules,
     password: passwordRules,
   }).required(),
   params: Joi.object(),
@@ -30,16 +36,16 @@ const registerSchema = Joi.object({
 
 const registerSellerSchema = Joi.object({
   body: Joi.object({
-    name: Joi.string().min(2).max(100).required(),
+    name: Joi.string().trim().min(2).max(100).required(),
     email: Joi.string().email().lowercase().max(255).required(),
-    phone: Joi.string().pattern(MOROCCAN_PHONE).required().messages({
-      'string.pattern.base': 'Must be a valid Moroccan phone number (+212XXXXXXXXX)',
-    }),
+    phone: phoneRules,
     password: passwordRules,
-    business_name: Joi.string().min(2).max(150).required(),
+    business_name: Joi.string().trim().min(2).max(150).required(),
     bio: Joi.string().max(500).optional().allow(''),
-    address: Joi.string().min(5).max(255).required(),
-    city: Joi.string().valid(...CITIES).required(),
+    address: Joi.string().trim().min(5).max(255).required(),
+    city: Joi.string()
+      .valid(...CITIES)
+      .required(),
     delivery_radius_km: Joi.number().integer().min(1).max(50).default(5),
   }).required(),
   params: Joi.object(),
@@ -55,4 +61,26 @@ const loginSchema = Joi.object({
   query: Joi.object(),
 });
 
-module.exports = { registerSchema, registerSellerSchema, loginSchema };
+const refreshSchema = Joi.object({
+  body: Joi.object({
+    refresh_token: Joi.string().min(8).max(256).required(),
+  }).required(),
+  params: Joi.object(),
+  query: Joi.object(),
+});
+
+const logoutSchema = Joi.object({
+  body: Joi.object({
+    refresh_token: Joi.string().min(8).max(256).optional(),
+  }).default({}),
+  params: Joi.object(),
+  query: Joi.object(),
+});
+
+module.exports = {
+  registerSchema,
+  registerSellerSchema,
+  loginSchema,
+  refreshSchema,
+  logoutSchema,
+};
