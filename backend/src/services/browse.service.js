@@ -1,44 +1,88 @@
 'use strict';
 
-const SellerModel = require('../models/seller.model');
 const ItemModel = require('../models/item.model');
+const SellerModel = require('../models/seller.model');
+const MenuModel = require('../models/menu.model');
 const CategoryModel = require('../models/category.model');
+const AppError = require('../utils/AppError');
 const { parsePaginationParams, buildPaginationMeta } = require('../utils/pagination');
-const { serializeSellerPublic } = require('../utils/serializers/seller.serializer');
-const { serializeMenuItemWithSeller } = require('../utils/serializers/item.serializer');
 
-/** @returns {Promise<{ items, pagination }>} approved + open sellers */
-const getSellers = async (query) => {
-  // TODO: parsePaginationParams, SellerModel.findOpenInCity, serialize, buildPaginationMeta
-  throw new Error('Not implemented');
+const DEFAULT_FEATURED_LIMIT = 20;
+
+/**
+ * Public browse — paginated, filtered, searchable list of available items
+ * from approved sellers.
+ */
+const getItems = async (queryParams) => {
+  const { page, limit, offset } = parsePaginationParams(queryParams);
+
+  const filters = {
+    page,
+    limit,
+    offset,
+    city: queryParams.city,
+    categorySlug: queryParams.category,
+    sellerId: queryParams.seller_id,
+    minPrice: queryParams.min_price,
+    maxPrice: queryParams.max_price,
+    search: queryParams.search,
+    sort: queryParams.sort,
+  };
+
+  // Run COUNT + page query in parallel.
+  const [items, total] = await Promise.all([
+    ItemModel.findAvailableForBrowse(filters),
+    ItemModel.countAvailableForBrowse(filters),
+  ]);
+
+  return {
+    items,
+    pagination: buildPaginationMeta(page, limit, total),
+  };
 };
 
-/** @returns {Promise<object>} full seller profile with menus and items */
+const getFeaturedItems = async (queryParams = {}) => {
+  const limit = Number(queryParams.limit) || DEFAULT_FEATURED_LIMIT;
+  return ItemModel.findFeatured({ limit, city: queryParams.city });
+};
+
+const getCategories = async () => CategoryModel.findActive();
+
+/* ── Seller browse (used by Seller list + Seller profile) ──────────────── */
+
+const getSellers = async (queryParams) => {
+  // The seller browse feature is implemented in the seller management step.
+  // For now, return paginated approved sellers with optional city filter.
+  // (Real implementation will live in the seller feature step.)
+  throw new AppError(501, 'NOT_IMPLEMENTED', 'Seller browse is part of the seller feature');
+};
+
+/**
+ * Full seller profile with their menus + items inlined.
+ * Used by the public mobile screen "SellerProfileScreen".
+ */
 const getSellerProfile = async (sellerId) => {
-  // TODO:
-  // 1. SellerModel.findById(sellerId)
-  // 2. Verify status === 'approved' → throw AppError(404, 'NOT_FOUND') if not
-  // 3. Fetch menus with their items (available + not deleted)
-  // 4. Return serializeSellerPublic(seller) + menus
-  throw new Error('Not implemented');
+  const seller = await SellerModel.findById(sellerId);
+  if (!seller || seller.status !== 'approved') {
+    throw new AppError(404, 'NOT_FOUND', 'Seller not found');
+  }
+
+  // Fetch all (non-deleted) menus for this seller; we'll inline their items.
+  const menus = await MenuModel.findBySellerId(sellerId);
+  const menusWithItems = await Promise.all(
+    menus.map(async (m) => {
+      const full = await MenuModel.findByIdWithItems(m.id);
+      return full;
+    })
+  );
+
+  return { seller, menus: menusWithItems.filter(Boolean) };
 };
 
-/** @returns {Promise<{ items, pagination }>} available menu items with filters */
-const getItems = async (query) => {
-  // TODO: parsePaginationParams, ItemModel.findAvailableForBrowse + countAvailableForBrowse (parallel), serialize
-  throw new Error('Not implemented');
+module.exports = {
+  getItems,
+  getFeaturedItems,
+  getCategories,
+  getSellers,
+  getSellerProfile,
 };
-
-/** @returns {Promise<object[]>} top 20 items by order count */
-const getFeaturedItems = async () => {
-  // TODO: ItemModel.findFeatured(20), serialize
-  throw new Error('Not implemented');
-};
-
-/** @returns {Promise<object[]>} active categories with item counts */
-const getCategories = async () => {
-  // TODO: CategoryModel.findAll() (with item count subquery or separate query)
-  throw new Error('Not implemented');
-};
-
-module.exports = { getSellers, getSellerProfile, getItems, getFeaturedItems, getCategories };

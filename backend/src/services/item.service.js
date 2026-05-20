@@ -2,54 +2,138 @@
 
 const ItemModel = require('../models/item.model');
 const MenuModel = require('../models/menu.model');
+const CategoryModel = require('../models/category.model');
 const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
 const UploadService = require('./upload.service');
-const { serializeMenuItem } = require('../utils/serializers/item.serializer');
 
-const assertItemOwnership = async (itemId, sellerId) => {
-  // TODO: fetch item → fetch menu → verify menu.seller_id === sellerId
-  throw new Error('Not implemented');
+const assertMenuOwnership = (menu, sellerId) => {
+  if (!menu || menu.seller_id !== sellerId) {
+    throw new AppError(404, 'NOT_FOUND', 'Menu not found');
+  }
 };
 
-/** @returns {Promise<object>} */
+const assertItemOwnership = (item, sellerId) => {
+  if (!item || item.seller_id !== sellerId) {
+    throw new AppError(404, 'NOT_FOUND', 'Item not found');
+  }
+};
+
+/**
+ * Validate that a category exists AND is active. Inactive categories
+ * cannot accept new items (but existing items keep their category reference).
+ */
+const assertCategoryUsable = async (categoryId) => {
+  const category = await CategoryModel.findById(categoryId);
+  if (!category || !category.is_active) {
+    throw new AppError(
+      400,
+      'INVALID_CATEGORY',
+      'Selected category does not exist or is no longer active'
+    );
+  }
+};
+
+const getMenuItems = async (user, menuId) => {
+  const menu = await MenuModel.findById(menuId);
+  assertMenuOwnership(menu, user.sellerProfile.id);
+  return ItemModel.findByMenuId(menuId);
+};
+
 const addItem = async (user, menuId, itemData) => {
-  // TODO: verify menu ownership, ItemModel.create({ menuId, ...itemData })
-  throw new Error('Not implemented');
+  const menu = await MenuModel.findById(menuId);
+  assertMenuOwnership(menu, user.sellerProfile.id);
+  await assertCategoryUsable(itemData.category_id);
+
+  const item = await ItemModel.create({
+    menuId,
+    categoryId: itemData.category_id,
+    name: String(itemData.name).trim(),
+    description: itemData.description ? String(itemData.description).trim() : null,
+    price: itemData.price,
+    prepTimeMin: itemData.prep_time_min,
+    isAvailable: itemData.is_available,
+  });
+  logger.info('Item added', { itemId: item.id, menuId, sellerId: user.sellerProfile.id });
+  return item;
 };
 
-/** @returns {Promise<object>} */
 const getItem = async (user, itemId) => {
-  // TODO: fetch item + assertItemOwnership
-  throw new Error('Not implemented');
+  const item = await ItemModel.findByIdWithSeller(itemId);
+  assertItemOwnership(item, user.sellerProfile.id);
+  return item;
 };
 
-/** @returns {Promise<object>} */
 const updateItem = async (user, itemId, fields) => {
-  // TODO: assertItemOwnership, ItemModel.update
-  throw new Error('Not implemented');
+  const item = await ItemModel.findByIdWithSeller(itemId);
+  assertItemOwnership(item, user.sellerProfile.id);
+
+  // Recheck category usability if it's being changed.
+  if (fields.category_id !== undefined && fields.category_id !== item.category_id) {
+    await assertCategoryUsable(fields.category_id);
+  }
+
+  const patch = {};
+  if (fields.name !== undefined) patch.name = String(fields.name).trim();
+  if (fields.description !== undefined) {
+    patch.description = fields.description ? String(fields.description).trim() : null;
+  }
+  if (fields.price !== undefined) patch.price = fields.price;
+  if (fields.category_id !== undefined) patch.category_id = fields.category_id;
+  if (fields.prep_time_min !== undefined) patch.prep_time_min = fields.prep_time_min;
+  if (fields.is_available !== undefined) patch.is_available = fields.is_available;
+
+  const updated = await ItemModel.update(itemId, patch);
+  if (!updated) throw new AppError(404, 'NOT_FOUND', 'Item not found');
+  return updated;
 };
 
-/** @returns {Promise<void>} */
 const deleteItem = async (user, itemId) => {
-  // TODO: assertItemOwnership, ItemModel.softDelete
-  throw new Error('Not implemented');
+  const item = await ItemModel.findByIdWithSeller(itemId);
+  assertItemOwnership(item, user.sellerProfile.id);
+  await ItemModel.softDelete(itemId);
+  logger.info('Item deleted', { itemId, sellerId: user.sellerProfile.id });
 };
 
-/** @returns {Promise<object>} */
 const toggleAvailability = async (user, itemId, isAvailable) => {
-  // TODO: assertItemOwnership, ItemModel.toggleAvailability
-  throw new Error('Not implemented');
+  const item = await ItemModel.findByIdWithSeller(itemId);
+  assertItemOwnership(item, user.sellerProfile.id);
+  return ItemModel.toggleAvailability(itemId, Boolean(isAvailable));
 };
 
-/** @returns {Promise<{ image_url: string, image_public_id: string }>} */
 const uploadItemImage = async (user, itemId, file) => {
-  // TODO:
-  // 1. assertItemOwnership
-  // 2. Fetch current item to get existing public_id
-  // 3. UploadService.uploadImage(file.buffer, 'items')
-  // 4. If previous image: UploadService.deleteImage(prevPublicId) [non-blocking]
-  // 5. ItemModel.updateImage(itemId, { imageUrl, imagePublicId })
-  throw new Error('Not implemented');
+  if (!file || !file.buffer) {
+    throw new AppError(400, 'BAD_REQUEST', 'No image file provided');
+  }
+
+  const item = await ItemModel.findByIdWithSeller(itemId);
+  assertItemOwnership(item, user.sellerProfile.id);
+
+  const previousPublicId = item.image_public_id;
+
+  const { secure_url, public_id } = await UploadService.uploadImage(file.buffer, 'items');
+  await ItemModel.updateImage(itemId, { imageUrl: secure_url, imagePublicId: public_id });
+
+  // Fire-and-forget cleanup of the previous Cloudinary asset.
+  if (previousPublicId) {
+    UploadService.deleteImage(previousPublicId).catch((err) => {
+      logger.warn('Old item image cleanup failed', {
+        previousPublicId,
+        error: err.message,
+      });
+    });
+  }
+
+  logger.info('Item image uploaded', { itemId, sellerId: user.sellerProfile.id });
+  return { image_url: secure_url, image_public_id: public_id };
 };
 
-module.exports = { addItem, getItem, updateItem, deleteItem, toggleAvailability, uploadItemImage };
+module.exports = {
+  getMenuItems,
+  addItem,
+  getItem,
+  updateItem,
+  deleteItem,
+  toggleAvailability,
+  uploadItemImage,
+};
