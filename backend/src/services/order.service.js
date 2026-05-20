@@ -1,6 +1,7 @@
 'use strict';
 
 const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
 const OrderModel = require('../models/order.model');
 const ItemModel = require('../models/item.model');
 const SellerModel = require('../models/seller.model');
@@ -8,114 +9,395 @@ const { withTransaction } = require('../models/base.model');
 const NotificationService = require('./notification.service');
 const { getIO } = require('../config/socket');
 const { parsePaginationParams, buildPaginationMeta } = require('../utils/pagination');
-const { serializeOrder, serializeOrderItem } = require('../utils/serializers/order.serializer');
+const {
+  ORDER_STATUSES,
+  isValidTransition,
+  canCustomerCancel,
+  canSellerCancel,
+} = require('../utils/orderState');
+const { USER_ROLES } = require('../constants/roles');
 
-const VALID_TRANSITIONS = {
-  pending:   ['accepted', 'cancelled'],
-  accepted:  ['preparing', 'cancelled'],
-  preparing: ['ready'],
-  ready:     ['delivered'],
-  delivered: [],
-  cancelled: [],
+const round2 = (n) => Math.round(Number(n) * 100) / 100;
+
+const safeSocketEmit = (room, event, payload) => {
+  try {
+    getIO().to(room).emit(event, payload);
+  } catch (err) {
+    logger.warn('Socket emit failed', { room, event, error: err.message });
+  }
 };
 
 /**
- * Place a new order. The most complex service in the application.
- * Validates business rules, calculates server-side total, runs atomic transaction.
- * @returns {Promise<object>} serialized order
+ * Customer enumeration protection: rejection of non-approved sellers as
+ * "not found" prevents an attacker probing seller IDs from learning state.
  */
-const createOrder = async (user, { seller_id, items, delivery_address, customer_notes, payment_method }) => {
-  // TODO:
-  // 1. Fetch seller → check status === 'approved' AND is_open === true
-  // 2. Fetch all menu items by IDs (ItemModel.findByIds)
-  // 3. Validate all items exist, are available, and belong to seller_id
-  // 4. Validate no cross-seller items (all items.seller_id === seller_id)
-  // 5. Calculate total_amount = sum(price * quantity) — SERVER SIDE ONLY
-  // 6. withTransaction(async (client) => {
-  //      order = OrderModel.create({ customerId: user.id, sellerId, totalAmount, ... }, client)
-  //      for each item: OrderModel.createItem({ orderId: order.id, ... }, client)
-  //    })
-  // 7. [fire and forget] NotificationService.notifyOrderPlaced(order, seller.userId)
-  // 8. [fire and forget] getIO().to(`order:${order.id}`).emit('order:new', { orderId: order.id })
-  // 9. Return serialized order
-  throw new Error('Not implemented');
+const assertSellerOrderable = (seller) => {
+  if (!seller || seller.status !== 'approved') {
+    throw new AppError(404, 'NOT_FOUND', 'Seller not found');
+  }
+  if (!seller.is_open) {
+    throw new AppError(422, 'SELLER_CLOSED', 'This seller is not currently accepting orders');
+  }
 };
 
-/**
- * Get order by ID with ownership enforcement.
- * Customer sees their own order. Seller sees their restaurant's order.
- */
+/* ── createOrder ──────────────────────────────────────────────────────── */
+
+const createOrder = async (user, input, { idempotencyKey } = {}) => {
+  // Idempotency: if the same key was used before, return that exact order.
+  // No further validation, no notification fires — replay is a no-op.
+  if (idempotencyKey) {
+    const existing = await OrderModel.findByIdempotencyKey(user.id, idempotencyKey);
+    if (existing) {
+      return OrderModel.findByIdWithItems(existing.id);
+    }
+  }
+
+  // 1. Verify seller is approved + open
+  const seller = await SellerModel.findById(input.seller_id);
+  assertSellerOrderable(seller);
+
+  // 2. Fetch + verify items
+  const requestedIds = input.items.map((i) => i.menu_item_id);
+  const foundItems = await ItemModel.findByIds(requestedIds);
+  const foundMap = new Map(foundItems.map((i) => [i.id, i]));
+
+  const unavailable = [];
+  for (const req of input.items) {
+    const found = foundMap.get(req.menu_item_id);
+    if (!found) {
+      unavailable.push({
+        menu_item_id: req.menu_item_id,
+        reason: 'Item is currently unavailable',
+      });
+    } else if (found.seller_id !== input.seller_id) {
+      throw new AppError(
+        422,
+        'CROSS_SELLER_ORDER',
+        'All items in an order must be from the same seller'
+      );
+    }
+  }
+  if (unavailable.length > 0) {
+    throw new AppError(422, 'UNPROCESSABLE', 'Some items are no longer available', unavailable);
+  }
+
+  // 3. Server-side total — never trust client-provided totals
+  let totalAmount = 0;
+  const itemSnapshots = input.items.map((req) => {
+    const found = foundMap.get(req.menu_item_id);
+    const unitPrice = Number(found.price);
+    const subtotal = round2(unitPrice * req.quantity);
+    totalAmount += subtotal;
+    return {
+      menuItemId: found.id,
+      name: found.name,
+      price: round2(unitPrice),
+      quantity: req.quantity,
+      subtotal,
+      imageUrl: found.image_url,
+    };
+  });
+  totalAmount = round2(totalAmount);
+
+  // 4. Atomic transaction: order + items + initial history row
+  let createdOrderId;
+  try {
+    createdOrderId = await withTransaction(async (client) => {
+      const order = await OrderModel.create(
+        {
+          customerId: user.id,
+          sellerId: input.seller_id,
+          totalAmount,
+          paymentMethod: input.payment_method,
+          deliveryAddress: input.delivery_address,
+          customerNotes: input.customer_notes ?? null,
+          idempotencyKey: idempotencyKey ?? null,
+        },
+        client
+      );
+
+      for (const snap of itemSnapshots) {
+        await OrderModel.createItem({ orderId: order.id, ...snap }, client);
+      }
+
+      // Initial status history row — null → 'pending'.
+      await OrderModel.insertStatusHistory(
+        {
+          orderId: order.id,
+          fromStatus: null,
+          toStatus: ORDER_STATUSES.PENDING,
+          changedBy: user.id,
+        },
+        client
+      );
+
+      return order.id;
+    });
+  } catch (err) {
+    // Idempotency race: another request with the same key beat us to INSERT.
+    if (err.code === '23505' && err.constraint === 'idx_orders_customer_idempotency') {
+      const existing = await OrderModel.findByIdempotencyKey(user.id, idempotencyKey);
+      if (existing) return OrderModel.findByIdWithItems(existing.id);
+    }
+    throw err;
+  }
+
+  const fullOrder = await OrderModel.findByIdWithItems(createdOrderId);
+
+  // 5. Side effects — fire and forget, never block the response.
+  NotificationService.notifyOrderPlaced({
+    order: fullOrder,
+    sellerUserId: seller.user_id,
+  }).catch((err) => logger.warn('Order-placed notification failed', { orderId: createdOrderId, error: err.message }));
+
+  safeSocketEmit(`order:${createdOrderId}`, 'order:new', { orderId: createdOrderId });
+
+  logger.info('Order placed', {
+    orderId: createdOrderId,
+    customerId: user.id,
+    sellerId: input.seller_id,
+    total: totalAmount,
+  });
+
+  return fullOrder;
+};
+
+/* ── Reads with ownership enforcement ─────────────────────────────────── */
+
 const getOrderById = async (orderId, user) => {
-  // TODO:
-  // 1. OrderModel.findById(orderId)
-  // 2. If not found: throw AppError(404, 'NOT_FOUND', 'Order not found')
-  // 3. Ownership check:
-  //    - customer: order.customer_id !== user.id → throw 404 (don't reveal existence)
-  //    - seller: order.seller_id !== user.sellerProfile.id → throw 404
-  // 4. Return serializeOrder(order, { includeSellerContact: user.role === 'customer' })
-  throw new Error('Not implemented');
+  const order = await OrderModel.findByIdWithItems(orderId);
+  if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+
+  if (user.role === USER_ROLES.CUSTOMER) {
+    if (order.customer_id !== user.id) {
+      throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    }
+  } else if (user.role === USER_ROLES.SELLER) {
+    if (!user.sellerProfile || order.seller_id !== user.sellerProfile.id) {
+      throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    }
+  }
+  // Admins (role admin) skip the ownership check.
+
+  return order;
 };
 
-/** @returns {Promise<{ items, pagination }>} */
-const getOrdersByCustomer = async (user, query) => {
-  // TODO: parsePaginationParams, OrderModel.findByCustomer, buildPaginationMeta, serialize
-  throw new Error('Not implemented');
+const getOrdersByCustomer = async (user, queryParams = {}) => {
+  const { page, limit, offset } = parsePaginationParams(queryParams);
+  const filters = {
+    customerId: user.id,
+    status: queryParams.status,
+    fromDate: queryParams.from_date,
+    toDate: queryParams.to_date,
+    limit, offset,
+  };
+  const [items, total] = await Promise.all([
+    OrderModel.findByCustomer(filters),
+    OrderModel.countByCustomer(filters),
+  ]);
+  return { items, pagination: buildPaginationMeta(page, limit, total) };
 };
 
-/** @returns {Promise<{ items, pagination }>} */
-const getOrdersBySeller = async (user, query) => {
-  // TODO: parsePaginationParams, OrderModel.findBySeller with default from_date = 7 days ago
-  throw new Error('Not implemented');
+const getOrdersBySeller = async (user, queryParams = {}) => {
+  const { page, limit, offset } = parsePaginationParams(queryParams);
+  // Default to last 7 days when no date range provided — keeps the COUNT cheap as orders grow.
+  const fromDate = queryParams.from_date
+    || (queryParams.status || queryParams.to_date
+      ? undefined
+      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+
+  const filters = {
+    sellerId: user.sellerProfile.id,
+    status: queryParams.status,
+    fromDate,
+    toDate: queryParams.to_date,
+    limit, offset,
+  };
+  const [items, total] = await Promise.all([
+    OrderModel.findBySeller(filters),
+    OrderModel.countBySeller(filters),
+  ]);
+  return { items, pagination: buildPaginationMeta(page, limit, total) };
+};
+
+const getOrderStatusHistory = async (orderId, user) => {
+  // Reuse ownership check from getOrderById.
+  await getOrderById(orderId, user);
+  return OrderModel.getStatusHistory(orderId);
+};
+
+/* ── Status transitions ───────────────────────────────────────────────── */
+
+const performStatusTransition = async ({
+  order, newStatus, changedBy, note, estimatedReadyAt, autoCancelled, cancellationReason, notifyUserId,
+}) => {
+  if (!isValidTransition(order.status, newStatus)) {
+    throw new AppError(
+      422,
+      'INVALID_TRANSITION',
+      `Cannot transition from '${order.status}' to '${newStatus}'`
+    );
+  }
+
+  await withTransaction(async (client) => {
+    await OrderModel.updateStatus(
+      order.id,
+      {
+        status: newStatus,
+        estimatedReadyAt: estimatedReadyAt ? new Date(estimatedReadyAt) : undefined,
+        autoCancelled,
+        cancellationReason,
+      },
+      client
+    );
+    await OrderModel.insertStatusHistory(
+      {
+        orderId: order.id,
+        fromStatus: order.status,
+        toStatus: newStatus,
+        changedBy,
+        note,
+      },
+      client
+    );
+  });
+
+  const fullOrder = await OrderModel.findByIdWithItems(order.id);
+
+  if (notifyUserId) {
+    NotificationService.notifyOrderStatusChanged({
+      order: fullOrder,
+      recipientId: notifyUserId,
+      newStatus,
+    }).catch((err) => logger.warn('Status notification failed', { orderId: order.id, error: err.message }));
+  }
+
+  safeSocketEmit(`order:${order.id}`, 'order:status_changed', {
+    orderId: order.id,
+    status: newStatus,
+    estimatedReadyAt: fullOrder.estimated_ready_at,
+    changedAt: new Date().toISOString(),
+  });
+
+  return fullOrder;
+};
+
+const updateOrderStatus = async (orderId, sellerUser, { status, estimated_ready_at, note }) => {
+  const order = await OrderModel.findById(orderId);
+  if (!order || order.seller_id !== sellerUser.sellerProfile.id) {
+    throw new AppError(404, 'NOT_FOUND', 'Order not found');
+  }
+
+  return performStatusTransition({
+    order,
+    newStatus: status,
+    changedBy: sellerUser.id,
+    note,
+    estimatedReadyAt: estimated_ready_at,
+    notifyUserId: order.customer_id,
+  });
+};
+
+const cancelOrderByCustomer = async (orderId, customerUser) => {
+  const order = await OrderModel.findById(orderId);
+  if (!order || order.customer_id !== customerUser.id) {
+    throw new AppError(404, 'NOT_FOUND', 'Order not found');
+  }
+  if (!canCustomerCancel(order.status)) {
+    throw new AppError(
+      422,
+      'INVALID_TRANSITION',
+      'Only pending orders can be cancelled by the customer'
+    );
+  }
+
+  // Find the seller's user_id for notification routing.
+  const seller = await SellerModel.findById(order.seller_id);
+
+  return performStatusTransition({
+    order,
+    newStatus: ORDER_STATUSES.CANCELLED,
+    changedBy: customerUser.id,
+    note: 'Cancelled by customer',
+    cancellationReason: 'Cancelled by customer',
+    notifyUserId: seller?.user_id,
+  });
+};
+
+const cancelOrderBySeller = async (orderId, sellerUser, { reason }) => {
+  const order = await OrderModel.findById(orderId);
+  if (!order || order.seller_id !== sellerUser.sellerProfile.id) {
+    throw new AppError(404, 'NOT_FOUND', 'Order not found');
+  }
+  if (!canSellerCancel(order.status)) {
+    throw new AppError(
+      422,
+      'INVALID_TRANSITION',
+      `Cannot cancel a ${order.status} order`
+    );
+  }
+
+  return performStatusTransition({
+    order,
+    newStatus: ORDER_STATUSES.CANCELLED,
+    changedBy: sellerUser.id,
+    note: reason,
+    cancellationReason: reason,
+    notifyUserId: order.customer_id,
+  });
 };
 
 /**
- * Customer cancels a pending order.
- */
-const cancelOrderByCustomer = async (orderId, user) => {
-  // TODO:
-  // 1. getOrderById(orderId, user) — enforces ownership
-  // 2. If order.status !== 'pending': throw AppError(422, 'INVALID_TRANSITION', 'Only pending orders can be cancelled')
-  // 3. OrderModel.updateStatus(orderId, { status: 'cancelled', note: 'Cancelled by customer' })
-  // 4. NotificationService.notifyOrderStatusChanged({ order, sellerId, newStatus: 'cancelled' })
-  // 5. getIO().to(...).emit('order:status_changed', ...)
-  throw new Error('Not implemented');
-};
-
-/**
- * Seller updates order status through the state machine.
- */
-const updateOrderStatus = async (orderId, seller, { status, estimated_ready_at, note }) => {
-  // TODO:
-  // 1. OrderModel.findById(orderId) + ownership check (order.seller_id === seller.sellerProfile.id)
-  // 2. Validate VALID_TRANSITIONS[currentStatus].includes(newStatus) → throw AppError(422, 'INVALID_TRANSITION')
-  // 3. OrderModel.updateStatus(orderId, { status, estimatedReadyAt: estimated_ready_at, note })
-  // 4. NotificationService.notifyOrderStatusChanged({ order, customerId, newStatus })
-  // 5. getIO().to(`order:${orderId}`).emit('order:status_changed', { orderId, status, estimatedReadyAt: estimated_ready_at, changedAt })
-  throw new Error('Not implemented');
-};
-
-/**
- * Seller cancels an order they cannot fulfill.
- */
-const cancelOrderBySeller = async (orderId, seller, { reason }) => {
-  // TODO: Same as updateOrderStatus but with transition validation (cannot cancel delivered)
-  // and notification to customer
-  throw new Error('Not implemented');
-};
-
-/**
- * Auto-cancel cron job: cancels all pending orders > 30 minutes old.
- * Called by the cron job, not by a controller.
+ * Auto-cancel cron job (Architecture Amendment 2).
+ * Per-order failures are logged and the loop continues — one bad row should
+ * never block cancellation of healthy expired orders.
  */
 const autoCancelExpiredOrders = async () => {
-  // TODO:
-  // 1. OrderModel.findPendingExpired()
-  // 2. For each: OrderModel.updateStatus(id, { status: 'cancelled', note: 'Auto-cancelled — no response from seller' })
-  //    + mark auto_cancelled = TRUE
-  // 3. NotificationService.notifyOrderAutoCancelled(order, order.customer_id)
-  // 4. getIO().to(`order:${order.id}`).emit('order:auto_cancelled', ...)
-  // 5. Log count of cancelled orders
-  throw new Error('Not implemented');
+  const expired = await OrderModel.findPendingExpired();
+  const cancelled = [];
+
+  for (const order of expired) {
+    try {
+      await withTransaction(async (client) => {
+        await OrderModel.updateStatus(
+          order.id,
+          {
+            status: ORDER_STATUSES.CANCELLED,
+            autoCancelled: true,
+            cancellationReason: 'No response from seller within 30 minutes',
+          },
+          client
+        );
+        await OrderModel.insertStatusHistory(
+          {
+            orderId: order.id,
+            fromStatus: ORDER_STATUSES.PENDING,
+            toStatus: ORDER_STATUSES.CANCELLED,
+            changedBy: null, // system
+            note: 'Auto-cancelled — seller did not respond within 30 minutes',
+          },
+          client
+        );
+      });
+
+      const fullOrder = await OrderModel.findByIdWithItems(order.id);
+      cancelled.push(fullOrder);
+
+      NotificationService.notifyOrderAutoCancelled({
+        order: fullOrder,
+        customerId: order.customer_id,
+      }).catch((err) => logger.warn('Auto-cancel notification failed', { orderId: order.id, error: err.message }));
+
+      safeSocketEmit(`order:${order.id}`, 'order:auto_cancelled', {
+        orderId: order.id,
+        reason: 'Seller did not respond within 30 minutes',
+      });
+    } catch (err) {
+      logger.error('Auto-cancel failed for order', { orderId: order.id, error: err.message });
+    }
+  }
+
+  return cancelled;
 };
 
 module.exports = {
@@ -123,9 +405,9 @@ module.exports = {
   getOrderById,
   getOrdersByCustomer,
   getOrdersBySeller,
+  getOrderStatusHistory,
   cancelOrderByCustomer,
   updateOrderStatus,
   cancelOrderBySeller,
   autoCancelExpiredOrders,
-  VALID_TRANSITIONS,
 };

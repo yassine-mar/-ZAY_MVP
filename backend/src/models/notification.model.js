@@ -2,46 +2,88 @@
 
 const { query } = require('./base.model');
 
-/** @returns {Promise<object>} created notification row */
+const COLUMNS = `
+  id, user_id, type, title, body, order_id, data,
+  is_read, fcm_sent, fcm_error, read_at, created_at
+`;
+
 const create = async ({ userId, type, title, body, orderId, data }) => {
-  // TODO: INSERT INTO notifications (id, user_id, type, title, body, order_id, data) VALUES (...) RETURNING *
-  throw new Error('Not implemented');
+  const result = await query(
+    `INSERT INTO notifications
+       (id, user_id, type, title, body, order_id, data)
+     VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6::jsonb)
+     RETURNING ${COLUMNS}`,
+    [userId, type, title, body, orderId ?? null, data ? JSON.stringify(data) : null]
+  );
+  return result.rows[0];
 };
 
-/** @returns {Promise<void>} */
 const markFcmSent = async (id) => {
-  // TODO: UPDATE notifications SET fcm_sent = TRUE WHERE id = $1
-  throw new Error('Not implemented');
+  await query('UPDATE notifications SET fcm_sent = TRUE WHERE id = $1', [id]);
 };
 
-/** @returns {Promise<void>} */
 const markFcmError = async (id, errorMessage) => {
-  // TODO: UPDATE notifications SET fcm_error = $2 WHERE id = $1
-  throw new Error('Not implemented');
+  await query(
+    'UPDATE notifications SET fcm_error = $2 WHERE id = $1',
+    [id, String(errorMessage).slice(0, 1000)]
+  );
 };
 
-/** @returns {Promise<{ items: object[], total: number }>} */
-const findByUser = async ({ userId, page, limit }) => {
-  // TODO: paginated SELECT WHERE user_id = $1 ORDER BY created_at DESC
-  throw new Error('Not implemented');
+const findByUser = async ({ userId, limit, offset }) => {
+  const result = await query(
+    `SELECT ${COLUMNS}
+     FROM notifications
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
+  );
+  return result.rows;
 };
 
-/** @returns {Promise<number>} */
+const countByUser = async (userId) => {
+  const result = await query(
+    'SELECT COUNT(*)::int AS total FROM notifications WHERE user_id = $1',
+    [userId]
+  );
+  return result.rows[0].total;
+};
+
 const countUnread = async (userId) => {
-  // TODO: SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = FALSE
-  throw new Error('Not implemented');
+  const result = await query(
+    'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND is_read = FALSE',
+    [userId]
+  );
+  return result.rows[0].count;
 };
 
-/** @returns {Promise<void>} */
 const markRead = async (id, userId) => {
-  // TODO: UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2
-  throw new Error('Not implemented');
+  const result = await query(
+    `UPDATE notifications
+     SET is_read = TRUE, read_at = NOW()
+     WHERE id = $1 AND user_id = $2 AND is_read = FALSE`,
+    [id, userId]
+  );
+  return result.rowCount > 0;
 };
 
-/** @returns {Promise<number>} count of rows updated */
 const markAllRead = async (userId) => {
-  // TODO: UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE RETURNING COUNT(*)
-  throw new Error('Not implemented');
+  const result = await query(
+    `UPDATE notifications
+     SET is_read = TRUE, read_at = NOW()
+     WHERE user_id = $1 AND is_read = FALSE`,
+    [userId]
+  );
+  return result.rowCount;
 };
 
-module.exports = { create, markFcmSent, markFcmError, findByUser, countUnread, markRead, markAllRead };
+module.exports = {
+  create,
+  markFcmSent,
+  markFcmError,
+  findByUser,
+  countByUser,
+  countUnread,
+  markRead,
+  markAllRead,
+};

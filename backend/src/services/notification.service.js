@@ -2,73 +2,139 @@
 
 const NotificationModel = require('../models/notification.model');
 const UserModel = require('../models/user.model');
-const { messaging } = require('../config/firebase');
 const logger = require('../utils/logger');
 
 /**
- * Two-track notification: DB record + FCM push.
- * Both operations run concurrently. FCM failure does NOT throw —
- * it logs the error and marks fcm_error on the DB record.
+ * Firebase Admin SDK is initialized in config/firebase.js. If the environment
+ * lacks valid credentials (dev without Firebase, tests with fake values), the
+ * init throws — and we still want notifications to work as DB records.
+ * Lazy-load via try/catch so the rest of the service is bulletproof.
+ */
+let messaging = null;
+try {
+  // eslint-disable-next-line global-require
+  ({ messaging } = require('../config/firebase'));
+} catch (err) {
+  logger.warn('Firebase not available — FCM disabled', { error: err.message });
+}
+
+const ORDER_STATUS_NOTIFY = {
+  accepted:  { type: 'order_accepted',  title: 'Order accepted' },
+  preparing: { type: 'order_preparing', title: 'Your order is being prepared' },
+  ready:     { type: 'order_ready',     title: 'Your order is ready' },
+  delivered: { type: 'order_delivered', title: 'Order delivered' },
+  cancelled: { type: 'order_cancelled', title: 'Order cancelled' },
+};
+
+/**
+ * Two-track delivery: write the DB row, then attempt FCM push.
+ * The DB row is the source of truth — FCM is best-effort.
+ * Never throws — failures are logged and the caller proceeds.
  */
 const sendNotification = async ({ userId, type, title, body, orderId = null, data = null }) => {
-  // TODO:
-  // 1. NotificationModel.create({ userId, type, title, body, orderId, data })
-  // 2. UserModel.getFcmToken(userId)
-  // 3. If fcmToken: try sendFCMMessage(fcmToken, { title, body, data })
-  //      on success: NotificationModel.markFcmSent(notification.id)
-  //      on fail: NotificationModel.markFcmError(notification.id, error.message)
-  //               logger.warn('FCM delivery failed', { userId, type, error })
-  // NOTE: Use Promise.allSettled for fire-and-forget — never await this in caller
-  throw new Error('Not implemented');
+  try {
+    const notification = await NotificationModel.create({
+      userId, type, title, body, orderId, data,
+    });
+
+    if (!messaging) return notification; // FCM disabled — DB record suffices
+
+    const fcmToken = await UserModel.getFcmToken(userId);
+    if (!fcmToken) return notification;
+
+    try {
+      await messaging.send({
+        token: fcmToken,
+        notification: { title, body },
+        data: {
+          type,
+          order_id: orderId ?? '',
+          ...(data && Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))),
+        },
+      });
+      await NotificationModel.markFcmSent(notification.id);
+    } catch (fcmErr) {
+      logger.warn('FCM delivery failed', {
+        userId, type, orderId, error: fcmErr.message,
+      });
+      await NotificationModel.markFcmError(notification.id, fcmErr.message);
+    }
+
+    return notification;
+  } catch (err) {
+    // Notification logging should never break a flow — log and continue.
+    logger.error('Notification create failed', {
+      userId, type, error: err.message,
+    });
+    return null;
+  }
 };
 
-/** @returns {Promise<void>} sends FCM message to a specific token */
-const sendFCMMessage = async (fcmToken, { title, body, data }) => {
-  // TODO: messaging.send({ token: fcmToken, notification: { title, body }, data: stringify data })
-  throw new Error('Not implemented');
+/* ── Typed notification helpers ───────────────────────────────────────── */
+
+const notifyOrderPlaced = ({ order, sellerUserId }) =>
+  sendNotification({
+    userId: sellerUserId,
+    type: 'order_placed',
+    title: 'New order',
+    body: `You have a new order for ${Number(order.total_amount).toFixed(2)} MAD.`,
+    orderId: order.id,
+    data: { order_status: 'pending' },
+  });
+
+const notifyOrderStatusChanged = ({ order, recipientId, newStatus }) => {
+  const tpl = ORDER_STATUS_NOTIFY[newStatus];
+  if (!tpl) return Promise.resolve(null);
+  return sendNotification({
+    userId: recipientId,
+    type: tpl.type,
+    title: tpl.title,
+    body: tpl.body || `Your order is now ${newStatus}.`,
+    orderId: order.id,
+    data: { order_status: newStatus },
+  });
 };
 
-// ── Typed notification helpers ─────────────────────────────────────────────
+const notifyOrderAutoCancelled = ({ order, customerId }) =>
+  sendNotification({
+    userId: customerId,
+    type: 'order_auto_cancelled',
+    title: 'Order cancelled',
+    body: 'Your order was automatically cancelled — the seller did not respond.',
+    orderId: order.id,
+    data: { order_status: 'cancelled', auto_cancelled: true },
+  });
 
-/** Notifies seller when a new order is placed */
-const notifyOrderPlaced = async ({ order, sellerUserId }) => {
-  // TODO: sendNotification({ userId: sellerUserId, type: 'order_placed', title: 'New Order!', body: `Order #... placed`, orderId: order.id })
-  throw new Error('Not implemented');
-};
+const notifySellerApproved = ({ userId }) =>
+  sendNotification({
+    userId,
+    type: 'seller_approved',
+    title: 'Your seller account is approved',
+    body: 'Welcome aboard. You can now open your kitchen and accept orders.',
+  });
 
-/** Notifies customer when seller accepts their order */
-const notifyOrderAccepted = async ({ order, customerId }) => {
-  throw new Error('Not implemented');
-};
+const notifySellerRejected = ({ userId, reason }) =>
+  sendNotification({
+    userId,
+    type: 'seller_rejected',
+    title: 'Application update',
+    body: reason || 'Your seller application was not approved.',
+  });
 
-/** Notifies customer or seller of any status change */
-const notifyOrderStatusChanged = async ({ order, recipientId, newStatus }) => {
-  throw new Error('Not implemented');
-};
-
-/** Notifies seller when their account is approved */
-const notifySellerApproved = async ({ userId }) => {
-  // TODO: sendNotification({ userId, type: 'seller_approved', title: 'Account Approved!', body: '...' })
-  throw new Error('Not implemented');
-};
-
-/** Notifies seller when their account is rejected */
-const notifySellerRejected = async ({ userId, reason }) => {
-  throw new Error('Not implemented');
-};
-
-/** Notifies customer when their order is auto-cancelled by the cron job */
-const notifyOrderAutoCancelled = async ({ order, customerId }) => {
-  // TODO: sendNotification({ ..., type: 'order_auto_cancelled', body: 'Order automatically cancelled — seller unavailable' })
-  throw new Error('Not implemented');
-};
+const notifySellerSuspended = ({ userId, reason }) =>
+  sendNotification({
+    userId,
+    type: 'seller_suspended',
+    title: 'Account suspended',
+    body: reason || 'Your seller account has been suspended. Contact support.',
+  });
 
 module.exports = {
   sendNotification,
   notifyOrderPlaced,
-  notifyOrderAccepted,
   notifyOrderStatusChanged,
+  notifyOrderAutoCancelled,
   notifySellerApproved,
   notifySellerRejected,
-  notifyOrderAutoCancelled,
+  notifySellerSuspended,
 };
