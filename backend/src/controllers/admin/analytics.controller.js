@@ -1,23 +1,23 @@
 'use strict';
 
-const AdminAnalyticsService = require('../../services/admin/analytics.admin.service');
-const { sendSuccess } = require('../../utils/response');
+const AnalyticsAdminService = require('../../services/admin/analytics.admin.service');
+const { sendOk } = require('../../utils/response');
 
-const getOverview = async (req, res) => {
-  const overview = await AdminAnalyticsService.getOverview();
-  sendSuccess(res, 200, 'Analytics fetched', { overview });
+const getOverview = async (_req, res) => {
+  const overview = await AnalyticsAdminService.getOverview();
+  sendOk(res, 'Analytics fetched', { overview });
 };
 
 const getOrderTrends = async (req, res) => {
-  const days = parseInt(req.query.days, 10) || 30;
-  const trends = await AdminAnalyticsService.getOrderTrends(days);
-  sendSuccess(res, 200, 'Order trends fetched', { trends });
+  const days = req.query.days ?? 30;
+  const trends = await AnalyticsAdminService.getOrderTrends(days);
+  sendOk(res, 'Order trends fetched', { trends });
 };
 
 const getTopSellers = async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 10;
-  const sellers = await AdminAnalyticsService.getTopSellers(limit);
-  sendSuccess(res, 200, 'Top sellers fetched', { sellers });
+  const limit = req.query.limit ?? 10;
+  const top_sellers = await AnalyticsAdminService.getTopSellers(limit);
+  sendOk(res, 'Top sellers fetched', { top_sellers });
 };
 
 module.exports = { getOverview, getOrderTrends, getTopSellers };

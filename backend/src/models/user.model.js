@@ -2,23 +2,23 @@
 
 const { query } = require('./base.model');
 
-/**
- * Columns safe to return to the application layer.
- * `password_hash` is intentionally excluded — only `findByEmailWithPassword`
- * and `findByIdWithPassword` return it.
- */
 const SAFE_COLUMNS = `
   id, name, email, phone, role, status,
   avatar_url, avatar_public_id, fcm_token,
   created_at, updated_at
 `;
 
+const ADMIN_COLUMNS = `
+  id, name, email, phone, role, status,
+  avatar_url, avatar_public_id, fcm_token,
+  suspended_at, suspended_by, suspension_reason,
+  created_at, updated_at, deleted_at
+`;
+
 const findById = async (id, client = null) => {
   const runner = client || { query };
   const result = await runner.query(
-    `SELECT ${SAFE_COLUMNS}
-     FROM users
-     WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT ${SAFE_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
   return result.rows[0] || null;
@@ -64,18 +64,9 @@ const create = async ({ name, email, phone, passwordHash, role }, client = null)
 };
 
 const ALLOWED_UPDATE_FIELDS = new Set([
-  'name',
-  'phone',
-  'avatar_url',
-  'avatar_public_id',
+  'name', 'phone', 'avatar_url', 'avatar_public_id',
 ]);
 
-/**
- * Generic UPDATE for non-sensitive fields. Filters at the model level
- * (defense in depth — services should also filter, but this is the
- * authoritative boundary).
- * Never updates: email, role, status, password_hash, fcm_token, deleted_at.
- */
 const update = async (id, fields, client = null) => {
   const keys = Object.keys(fields).filter((k) => ALLOWED_UPDATE_FIELDS.has(k));
   if (keys.length === 0) return findById(id, client);
@@ -97,15 +88,11 @@ const update = async (id, fields, client = null) => {
 
 const updatePassword = async (id, passwordHash, client = null) => {
   const sql = `
-    UPDATE users
-    SET password_hash = $1
+    UPDATE users SET password_hash = $1
     WHERE id = $2 AND deleted_at IS NULL
   `;
-  if (client) {
-    await client.query(sql, [passwordHash, id]);
-  } else {
-    await query(sql, [passwordHash, id]);
-  }
+  if (client) await client.query(sql, [passwordHash, id]);
+  else await query(sql, [passwordHash, id]);
 };
 
 const updateFcmToken = async (id, fcmToken) => {
@@ -118,11 +105,8 @@ const clearFcmToken = async (id) => {
 
 const softDelete = async (id, client = null) => {
   const sql = 'UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL';
-  if (client) {
-    await client.query(sql, [id]);
-  } else {
-    await query(sql, [id]);
-  }
+  if (client) await client.query(sql, [id]);
+  else await query(sql, [id]);
 };
 
 const getFcmToken = async (id) => {
@@ -131,6 +115,72 @@ const getFcmToken = async (id) => {
     [id]
   );
   return result.rows[0]?.fcm_token || null;
+};
+
+/* ── Admin queries ─────────────────────────────────────────────────────── */
+
+const buildAdminFilter = ({ role, status, search }) => {
+  const conditions = ['deleted_at IS NULL'];
+  const params = [];
+  if (role) { params.push(role); conditions.push(`role = $${params.length}`); }
+  if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(name ILIKE $${params.length} OR email ILIKE $${params.length} OR phone ILIKE $${params.length})`);
+  }
+  return { conditions, params };
+};
+
+const findAllForAdmin = async ({ role, status, search, limit, offset }) => {
+  const { conditions, params } = buildAdminFilter({ role, status, search });
+  params.push(limit, offset);
+  const limitIdx = params.length - 1;
+  const offsetIdx = params.length;
+
+  const result = await query(
+    `SELECT ${ADMIN_COLUMNS}
+     FROM users
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY created_at DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    params
+  );
+  return result.rows;
+};
+
+const countAllForAdmin = async ({ role, status, search }) => {
+  const { conditions, params } = buildAdminFilter({ role, status, search });
+  const result = await query(
+    `SELECT COUNT(*)::int AS total FROM users WHERE ${conditions.join(' AND ')}`,
+    params
+  );
+  return result.rows[0].total;
+};
+
+const findByIdForAdmin = async (id) => {
+  const result = await query(
+    `SELECT ${ADMIN_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  return result.rows[0] || null;
+};
+
+/**
+ * Admin suspension — distinct from `update` because it touches admin-audit
+ * columns that the seller-side update flow forbids.
+ */
+const adminSuspend = async (id, { reason, suspendedBy }) => {
+  const result = await query(
+    `UPDATE users
+     SET status = 'suspended',
+         suspended_at = NOW(),
+         suspended_by = $2,
+         suspension_reason = $3
+     WHERE id = $1 AND status = 'active' AND deleted_at IS NULL
+     RETURNING ${ADMIN_COLUMNS}`,
+    [id, suspendedBy, reason]
+  );
+  return result.rows[0] || null;
 };
 
 module.exports = {
@@ -145,4 +195,9 @@ module.exports = {
   clearFcmToken,
   softDelete,
   getFcmToken,
+  // Admin-only
+  findAllForAdmin,
+  countAllForAdmin,
+  findByIdForAdmin,
+  adminSuspend,
 };

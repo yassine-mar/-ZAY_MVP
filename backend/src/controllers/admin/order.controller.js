@@ -1,21 +1,36 @@
 'use strict';
 
-const AdminOrderService = require('../../services/admin/order.admin.service');
-const { sendSuccess, sendPaginated } = require('../../utils/response');
+const OrderAdminService = require('../../services/admin/order.admin.service');
+const { sendOk, sendPaginated } = require('../../utils/response');
+const { serializeOrder } = require('../../utils/serializers/order.serializer');
 
 const getOrders = async (req, res) => {
-  const { items, pagination } = await AdminOrderService.getOrders(req.query);
-  sendPaginated(res, 'Orders fetched', items, pagination);
+  const { items, pagination } = await OrderAdminService.listAll(req.query);
+  sendPaginated(
+    res,
+    'Orders fetched',
+    items.map((o) => serializeOrder(o, { audience: 'seller' })),
+    pagination
+  );
 };
 
 const getOrderDetail = async (req, res) => {
-  const order = await AdminOrderService.getOrderDetail(req.params.id);
-  sendSuccess(res, 200, 'Order fetched', { order });
+  const { order, history } = await OrderAdminService.getOrderDetail(req.params.id);
+  sendOk(res, 'Order fetched', {
+    order: serializeOrder(order, { audience: 'seller' }),
+    history,
+  });
 };
 
 const forceCancelOrder = async (req, res) => {
-  const order = await AdminOrderService.forceCancelOrder(req.params.id, req.body.reason);
-  sendSuccess(res, 200, 'Order cancelled', { order });
+  const order = await OrderAdminService.forceCancelOrder(
+    req.params.id,
+    req.adminId,
+    req.body.reason
+  );
+  sendOk(res, 'Order cancelled', {
+    order: serializeOrder(order, { audience: 'seller' }),
+  });
 };
 
 module.exports = { getOrders, getOrderDetail, forceCancelOrder };

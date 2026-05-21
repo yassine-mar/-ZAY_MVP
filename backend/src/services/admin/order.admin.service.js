@@ -1,30 +1,44 @@
 'use strict';
 
 const OrderModel = require('../../models/order.model');
+const OrderService = require('../order.service');
 const AppError = require('../../utils/AppError');
-const NotificationService = require('../notification.service');
 const { parsePaginationParams, buildPaginationMeta } = require('../../utils/pagination');
 
-/** @returns {Promise<{ items, pagination }>} */
-const getOrders = async (query) => {
-  // TODO: paginated, all filters (status, seller_id, customer_id, date range, auto_cancelled)
-  throw new Error('Not implemented');
+const listAll = async (queryParams = {}) => {
+  const { page, limit, offset } = parsePaginationParams(queryParams);
+  const filters = {
+    status: queryParams.status,
+    sellerId: queryParams.seller_id,
+    customerId: queryParams.customer_id,
+    fromDate: queryParams.from_date,
+    toDate: queryParams.to_date,
+    autoCancelled: queryParams.auto_cancelled,
+    limit,
+    offset,
+  };
+
+  const [items, total] = await Promise.all([
+    OrderModel.findAllForAdmin(filters),
+    OrderModel.countAllForAdmin(filters),
+  ]);
+
+  return { items, pagination: buildPaginationMeta(page, limit, total) };
 };
 
-/** @returns {Promise<object>} full order detail with status history */
 const getOrderDetail = async (orderId) => {
-  // TODO: OrderModel.findById + OrderModel.getStatusHistory
-  throw new Error('Not implemented');
+  const order = await OrderModel.findByIdWithItems(orderId);
+  if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+
+  const history = await OrderModel.getStatusHistory(orderId);
+  return { order, history };
 };
 
-/** @returns {Promise<object>} cancelled order */
-const forceCancelOrder = async (orderId, reason) => {
-  // TODO:
-  // 1. fetch order → 404 if not found
-  // 2. If status in ('delivered', 'cancelled'): throw 422
-  // 3. OrderModel.updateStatus({ status: 'cancelled', note: reason })
-  // 4. Notify both customer and seller
-  throw new Error('Not implemented');
-};
+/**
+ * Admin force-cancel: delegates to OrderService so the state-machine check,
+ * audit row, and dual-party notification all run through the standard path.
+ */
+const forceCancelOrder = async (orderId, adminUserId, reason) =>
+  OrderService.forceCancelByAdmin(orderId, adminUserId, reason);
 
-module.exports = { getOrders, getOrderDetail, forceCancelOrder };
+module.exports = { listAll, getOrderDetail, forceCancelOrder };

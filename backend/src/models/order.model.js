@@ -12,12 +12,6 @@ const ORDER_COLUMNS = `
 
 /* ── Reads ─────────────────────────────────────────────────────────────── */
 
-/**
- * Count of orders for a customer that are NOT in a terminal state.
- * Used by UserService.deleteMe to block deletion when active orders exist.
- * Defensive against the orders table not yet existing — kept from the
- * previous step for cross-feature build order.
- */
 const countActiveByCustomer = async (customerId) => {
   try {
     const result = await query(
@@ -42,12 +36,6 @@ const findById = async (id) => {
   return result.rows[0] || null;
 };
 
-/**
- * Full order — joins items + seller summary in a single round-trip.
- * Used by every order-detail endpoint (customer, seller, admin).
- *
- * Returns `null` if the order doesn't exist.
- */
 const findByIdWithItems = async (id) => {
   const result = await query(
     `SELECT
@@ -56,7 +44,6 @@ const findByIdWithItems = async (id) => {
        o.accepted_at, o.estimated_ready_at, o.delivered_at,
        o.cancelled_at, o.cancellation_reason, o.auto_cancelled,
        o.idempotency_key, o.created_at, o.updated_at,
-       -- Seller summary (phone exposed via serializer based on status)
        json_build_object(
          'id', sp.id,
          'business_name', sp.business_name,
@@ -64,13 +51,11 @@ const findByIdWithItems = async (id) => {
          'city', sp.city,
          'phone', u.phone
        ) AS seller,
-       -- Customer summary (used by seller-facing views)
        json_build_object(
          'id', cu.id,
          'name', cu.name,
          'phone', cu.phone
        ) AS customer,
-       -- Items (ordered by created_at)
        COALESCE(
          json_agg(
            json_build_object(
@@ -108,26 +93,12 @@ const findByIdempotencyKey = async (customerId, key) => {
   return result.rows[0] || null;
 };
 
-/**
- * Paginated order list for a customer, newest first.
- * Optional status filter (single value) and date range.
- */
 const findByCustomer = async ({ customerId, status, fromDate, toDate, limit, offset }) => {
   const conditions = ['o.customer_id = $1'];
   const params = [customerId];
-
-  if (status) {
-    params.push(status);
-    conditions.push(`o.status = $${params.length}`);
-  }
-  if (fromDate) {
-    params.push(fromDate);
-    conditions.push(`o.created_at >= $${params.length}`);
-  }
-  if (toDate) {
-    params.push(toDate);
-    conditions.push(`o.created_at <= $${params.length}`);
-  }
+  if (status) { params.push(status); conditions.push(`o.status = $${params.length}`); }
+  if (fromDate) { params.push(fromDate); conditions.push(`o.created_at >= $${params.length}`); }
+  if (toDate) { params.push(toDate); conditions.push(`o.created_at <= $${params.length}`); }
 
   params.push(limit, offset);
   const limitIdx = params.length - 1;
@@ -145,7 +116,6 @@ const findByCustomer = async ({ customerId, status, fromDate, toDate, limit, off
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     params
   );
-
   return result.rows;
 };
 
@@ -155,7 +125,6 @@ const countByCustomer = async ({ customerId, status, fromDate, toDate }) => {
   if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
   if (fromDate) { params.push(fromDate); conditions.push(`created_at >= $${params.length}`); }
   if (toDate) { params.push(toDate); conditions.push(`created_at <= $${params.length}`); }
-
   const result = await query(
     `SELECT COUNT(*)::int AS total FROM orders WHERE ${conditions.join(' AND ')}`,
     params
@@ -166,7 +135,6 @@ const countByCustomer = async ({ customerId, status, fromDate, toDate }) => {
 const findBySeller = async ({ sellerId, status, fromDate, toDate, limit, offset }) => {
   const conditions = ['o.seller_id = $1'];
   const params = [sellerId];
-
   if (status) { params.push(status); conditions.push(`o.status = $${params.length}`); }
   if (fromDate) { params.push(fromDate); conditions.push(`o.created_at >= $${params.length}`); }
   if (toDate) { params.push(toDate); conditions.push(`o.created_at <= $${params.length}`); }
@@ -187,7 +155,6 @@ const findBySeller = async ({ sellerId, status, fromDate, toDate, limit, offset 
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     params
   );
-
   return result.rows;
 };
 
@@ -197,7 +164,6 @@ const countBySeller = async ({ sellerId, status, fromDate, toDate }) => {
   if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
   if (fromDate) { params.push(fromDate); conditions.push(`created_at >= $${params.length}`); }
   if (toDate) { params.push(toDate); conditions.push(`created_at <= $${params.length}`); }
-
   const result = await query(
     `SELECT COUNT(*)::int AS total FROM orders WHERE ${conditions.join(' AND ')}`,
     params
@@ -205,9 +171,59 @@ const countBySeller = async ({ sellerId, status, fromDate, toDate }) => {
   return result.rows[0].total;
 };
 
-/**
- * Pending orders older than 30 minutes — input to auto-cancel cron.
- */
+/* ── Admin-side reads (all sellers / all customers) ────────────────────── */
+
+const buildAdminOrderFilter = ({ status, sellerId, customerId, fromDate, toDate, autoCancelled }) => {
+  const conditions = [];
+  const params = [];
+  if (status) { params.push(status); conditions.push(`o.status = $${params.length}`); }
+  if (sellerId) { params.push(sellerId); conditions.push(`o.seller_id = $${params.length}`); }
+  if (customerId) { params.push(customerId); conditions.push(`o.customer_id = $${params.length}`); }
+  if (fromDate) { params.push(fromDate); conditions.push(`o.created_at >= $${params.length}`); }
+  if (toDate) { params.push(toDate); conditions.push(`o.created_at <= $${params.length}`); }
+  if (autoCancelled !== undefined && autoCancelled !== null) {
+    params.push(Boolean(autoCancelled));
+    conditions.push(`o.auto_cancelled = $${params.length}`);
+  }
+  return { conditions, params };
+};
+
+const findAllForAdmin = async (filters) => {
+  const { conditions, params } = buildAdminOrderFilter(filters);
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(filters.limit, filters.offset);
+  const limitIdx = params.length - 1;
+  const offsetIdx = params.length;
+
+  const result = await query(
+    `SELECT
+       o.${ORDER_COLUMNS.split(',').map((c) => c.trim()).join(', o.')},
+       sp.business_name AS seller_business_name,
+       cu.name          AS customer_name,
+       cu.phone         AS customer_phone
+     FROM orders o
+     JOIN seller_profiles sp ON o.seller_id = sp.id
+     JOIN users cu           ON o.customer_id = cu.id
+     ${where}
+     ORDER BY o.created_at DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    params
+  );
+  return result.rows;
+};
+
+const countAllForAdmin = async (filters) => {
+  const { conditions, params } = buildAdminOrderFilter(filters);
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const result = await query(
+    `SELECT COUNT(*)::int AS total FROM orders o ${where}`,
+    params
+  );
+  return result.rows[0].total;
+};
+
+/* ── Pending auto-cancel + history ─────────────────────────────────────── */
+
 const findPendingExpired = async () => {
   const result = await query(
     `SELECT id, customer_id, seller_id, total_amount, created_at
@@ -284,13 +300,6 @@ const insertStatusHistory = async (
   return result.rows[0];
 };
 
-/**
- * Status update. The lifecycle-timestamps trigger (migration 015) auto-sets
- * accepted_at / delivered_at / cancelled_at when status changes — we only set
- * estimated_ready_at + cancellation_reason + auto_cancelled here.
- *
- * Returns the updated order row, or null if not found / no transition occurred.
- */
 const updateStatus = async (
   id,
   { status, estimatedReadyAt, autoCancelled, cancellationReason },
@@ -298,7 +307,6 @@ const updateStatus = async (
 ) => {
   const sets = ['status = $2'];
   const params = [id, status];
-
   if (estimatedReadyAt !== undefined) {
     params.push(estimatedReadyAt);
     sets.push(`estimated_ready_at = $${params.length}`);
@@ -311,10 +319,8 @@ const updateStatus = async (
     params.push(cancellationReason);
     sets.push(`cancellation_reason = $${params.length}`);
   }
-
   const sql = `
-    UPDATE orders
-    SET ${sets.join(', ')}
+    UPDATE orders SET ${sets.join(', ')}
     WHERE id = $1
     RETURNING ${ORDER_COLUMNS}
   `;
@@ -331,6 +337,8 @@ module.exports = {
   countByCustomer,
   findBySeller,
   countBySeller,
+  findAllForAdmin,
+  countAllForAdmin,
   findPendingExpired,
   getStatusHistory,
   create,
