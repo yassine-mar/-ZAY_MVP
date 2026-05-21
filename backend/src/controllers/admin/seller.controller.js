@@ -1,31 +1,44 @@
 'use strict';
 
-const AdminSellerService = require('../../services/admin/seller.admin.service');
-const { sendSuccess, sendPaginated } = require('../../utils/response');
+const SellerAdminService = require('../../services/admin/seller.admin.service');
+const { sendOk, sendPaginated } = require('../../utils/response');
+const { serializeSellerAdmin } = require('../../utils/serializers/seller.serializer');
 
 const getSellers = async (req, res) => {
-  const { items, pagination } = await AdminSellerService.getSellers(req.query);
-  sendPaginated(res, 'Sellers fetched', items, pagination);
+  const { items, pagination } = await SellerAdminService.listAll(req.query);
+  sendPaginated(res, 'Sellers fetched', items.map(serializeSellerAdmin), pagination);
 };
 
 const getSellerDetail = async (req, res) => {
-  const seller = await AdminSellerService.getSellerDetail(req.params.id);
-  sendSuccess(res, 200, 'Seller fetched', { seller });
+  const seller = await SellerAdminService.getSellerDetail(req.params.id);
+  sendOk(res, 'Seller fetched', { seller: serializeSellerAdmin(seller) });
 };
 
 const approveSeller = async (req, res) => {
-  const seller = await AdminSellerService.approveSeller(req.params.id, req.body.note);
-  sendSuccess(res, 200, 'Seller approved successfully', { seller });
+  const seller = await SellerAdminService.approveSeller(
+    req.params.id,
+    req.adminId,        // set by admin authenticate middleware
+    req.body?.note
+  );
+  sendOk(res, 'Seller approved successfully', { seller: serializeSellerAdmin(seller) });
 };
 
 const rejectSeller = async (req, res) => {
-  const seller = await AdminSellerService.rejectSeller(req.params.id, req.body.reason);
-  sendSuccess(res, 200, 'Seller rejected', { seller });
+  const seller = await SellerAdminService.rejectSeller(
+    req.params.id,
+    req.adminId,
+    req.body.reason
+  );
+  sendOk(res, 'Seller rejected', { seller: serializeSellerAdmin(seller) });
 };
 
 const suspendSeller = async (req, res) => {
-  const seller = await AdminSellerService.suspendSeller(req.params.id, req.body.reason);
-  sendSuccess(res, 200, 'Seller suspended', { seller });
+  const seller = await SellerAdminService.suspendSeller(
+    req.params.id,
+    req.adminId,
+    req.body.reason
+  );
+  sendOk(res, 'Seller suspended', { seller: serializeSellerAdmin(seller) });
 };
 
 module.exports = { getSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller };

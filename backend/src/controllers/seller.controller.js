@@ -4,22 +4,38 @@ const SellerService = require('../services/seller.service');
 const OrderService = require('../services/order.service');
 const { sendOk, sendPaginated } = require('../utils/response');
 const { serializeOrder } = require('../utils/serializers/order.serializer');
+const {
+  serializeSellerPrivate,
+  serializeSellerPublic,
+} = require('../utils/serializers/seller.serializer');
 
-/* ── Seller profile (stubs — implemented in seller management step) ──── */
+/* ── Seller profile ───────────────────────────────────────────────────── */
 
 const getProfile = async (req, res) => {
   const profile = await SellerService.getProfile(req.user);
-  sendOk(res, 'Profile fetched', { profile });
+  sendOk(res, 'Profile fetched', { profile: serializeSellerPrivate(profile) });
 };
 
 const updateProfile = async (req, res) => {
   const profile = await SellerService.updateProfile(req.user, req.body);
-  sendOk(res, 'Profile updated', { profile });
+  sendOk(res, 'Profile updated', { profile: serializeSellerPrivate(profile) });
 };
 
 const toggleAvailability = async (req, res) => {
   const profile = await SellerService.toggleAvailability(req.user, req.body.is_open);
-  sendOk(res, `Shop is now ${req.body.is_open ? 'open' : 'closed'}`, { profile });
+  sendOk(res, `Shop is now ${req.body.is_open ? 'open' : 'closed'}`, {
+    profile: serializeSellerPublic(profile),
+  });
+};
+
+const uploadAvatar = async (req, res) => {
+  const result = await SellerService.uploadAvatar(req.user, req.file);
+  sendOk(res, 'Avatar updated', result);
+};
+
+const uploadBanner = async (req, res) => {
+  const result = await SellerService.uploadBanner(req.user, req.file);
+  sendOk(res, 'Banner updated', result);
 };
 
 const getAnalytics = async (req, res) => {
@@ -27,7 +43,7 @@ const getAnalytics = async (req, res) => {
   sendOk(res, 'Analytics fetched', { analytics });
 };
 
-/* ── Seller order endpoints (real — backed by OrderService) ───────────── */
+/* ── Seller order endpoints ───────────────────────────────────────────── */
 
 const getOrders = async (req, res) => {
   const { items, pagination } = await OrderService.getOrdersBySeller(req.user, req.query);
@@ -41,9 +57,7 @@ const getOrders = async (req, res) => {
 
 const getOrderDetail = async (req, res) => {
   const order = await OrderService.getOrderById(req.params.id, req.user);
-  sendOk(res, 'Order fetched', {
-    order: serializeOrder(order, { audience: 'seller' }),
-  });
+  sendOk(res, 'Order fetched', { order: serializeOrder(order, { audience: 'seller' }) });
 };
 
 const updateOrderStatus = async (req, res) => {
@@ -55,9 +69,7 @@ const updateOrderStatus = async (req, res) => {
 
 const cancelOrder = async (req, res) => {
   const order = await OrderService.cancelOrderBySeller(req.params.id, req.user, req.body);
-  sendOk(res, 'Order cancelled', {
-    order: serializeOrder(order, { audience: 'seller' }),
-  });
+  sendOk(res, 'Order cancelled', { order: serializeOrder(order, { audience: 'seller' }) });
 };
 
 const getOrderHistory = async (req, res) => {
@@ -66,6 +78,6 @@ const getOrderHistory = async (req, res) => {
 };
 
 module.exports = {
-  getProfile, updateProfile, toggleAvailability, getAnalytics,
+  getProfile, updateProfile, toggleAvailability, uploadAvatar, uploadBanner, getAnalytics,
   getOrders, getOrderDetail, updateOrderStatus, cancelOrder, getOrderHistory,
 };
