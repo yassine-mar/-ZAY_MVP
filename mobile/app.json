@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "@ZAY",
+    "slug": "zay-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "zay",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#E8520A",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ma.zay.mobile"
+    },
+    "android": {
+      "package": "ma.zay.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#E8520A"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {}
+    }
+  }
+}
