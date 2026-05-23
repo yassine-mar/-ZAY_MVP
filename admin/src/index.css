@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* @ZAY brand — warm orange + warm-tinted stone neutrals (per design system) */
+    --background: 36 30% 97%;        /* neutral.50  #FAF8F5 */
+    --foreground: 24 8% 17%;         /* neutral.800 #322E2A approx for text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 24 8% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 8% 17%;
+
+    --primary: 14 92% 47%;           /* brand.500 #E8520A */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 36 30% 94%;
+    --secondary-foreground: 24 8% 17%;
+
+    --muted: 36 16% 92%;
+    --muted-foreground: 24 6% 46%;
+
+    --accent: 36 30% 94%;
+    --accent-foreground: 24 8% 17%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 36 16% 88%;
+    --input: 36 16% 88%;
+    --ring: 14 92% 47%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
