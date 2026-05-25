@@ -48,6 +48,74 @@ export type CustomerRootParamList = {
   Checkout: undefined;
 };
 
+/* ── Seller (authenticated, approved) navigation tree ─────────────────── */
+
+export type SellerOrdersStackParamList = {
+  IncomingOrders: undefined;
+  SellerOrderDetail: { orderId: string };
+};
+
+export type SellerMenuStackParamList = {
+  MenuList: undefined;
+  AddEditMenu: { menuId?: string };
+  AddEditItem: { menuId: string; itemId?: string };
+};
+
+export type SellerProfileStackParamList = {
+  SellerProfile: undefined;
+  EditSellerProfile: undefined;
+};
+
+export type SellerTabsParamList = {
+  DashboardTab: undefined;
+  SellerOrdersTab: undefined;
+  SellerMenuTab: undefined;
+  SellerProfileTab: undefined;
+};
+
+export type SellerRootParamList = {
+  Tabs: undefined;
+};
+
+export type PendingSellerStackParamList = {
+  PendingApproval: undefined;
+};
+
+/* Composite props for typed nested navigation. */
+
+export type SellerOrdersScreenProps<T extends keyof SellerOrdersStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<SellerOrdersStackParamList, T>,
+    CompositeScreenProps<
+      BottomTabScreenProps<SellerTabsParamList>,
+      NativeStackScreenProps<SellerRootParamList>
+    >
+  >;
+
+export type SellerMenuScreenProps<T extends keyof SellerMenuStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<SellerMenuStackParamList, T>,
+    CompositeScreenProps<
+      BottomTabScreenProps<SellerTabsParamList>,
+      NativeStackScreenProps<SellerRootParamList>
+    >
+  >;
+
+export type SellerProfileScreenProps<T extends keyof SellerProfileStackParamList> =
+  CompositeScreenProps<
+    NativeStackScreenProps<SellerProfileStackParamList, T>,
+    CompositeScreenProps<
+      BottomTabScreenProps<SellerTabsParamList>,
+      NativeStackScreenProps<SellerRootParamList>
+    >
+  >;
+
+export type SellerTabsScreenProps<T extends keyof SellerTabsParamList> =
+  BottomTabScreenProps<SellerTabsParamList, T>;
+
+export type PendingSellerScreenProps<T extends keyof PendingSellerStackParamList> =
+  NativeStackScreenProps<PendingSellerStackParamList, T>;
+
 /* ── Composite screen prop helpers ─────────────────────────────────────── */
 
 export type HomeStackScreenProps<T extends keyof HomeStackParamList> =

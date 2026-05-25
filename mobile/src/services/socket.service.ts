@@ -24,6 +24,11 @@ export interface OrderStatusChangedPayload {
   note?: string | null;
 }
 
+export interface NewOrderPayload {
+  order_id: string;
+  seller_id: string;
+}
+
 type SocketLike = {
   on: (event: string, fn: (...args: any[]) => void) => void;
   off: (event: string, fn?: (...args: any[]) => void) => void;
@@ -68,6 +73,12 @@ export const socketService = {
   onOrderStatusChanged(handler: Listener<OrderStatusChangedPayload>): () => void {
     socket?.on('order:status_changed', handler);
     return () => socket?.off('order:status_changed', handler);
+  },
+
+  /** Seller-only — fired when a new order is placed against this seller. */
+  onNewOrder(handler: Listener<NewOrderPayload>): () => void {
+    socket?.on('order:placed', handler);
+    return () => socket?.off('order:placed', handler);
   },
 
   isConnected(): boolean {

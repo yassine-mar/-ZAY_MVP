@@ -198,3 +198,68 @@ export interface CartValidationResult {
   available: Array<{ menu_item_id: string; current_price: number; quantity: number }>;
   unavailable: Array<{ menu_item_id: string; reason: string }>;
 }
+
+/* ── Seller-side ──────────────────────────────────────────────────────── */
+
+export interface SellerAnalytics {
+  today: {
+    orders: number;
+    revenue: number;
+    pending: number;
+    cancelled: number;
+  };
+  this_week: {
+    orders: number;
+    revenue: number;
+  };
+  this_month: {
+    orders: number;
+    revenue: number;
+  };
+  trends: Array<{ date: string; orders: number; revenue: number }>;
+}
+
+/** Form shapes — seller side */
+export interface UpdateSellerProfileInput {
+  business_name?: string;
+  description?: string;
+  city?: string;
+  delivery_radius_km?: number;
+  phone?: string;
+}
+
+export interface CreateMenuInput {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateMenuInput {
+  name?: string;
+  description?: string;
+}
+
+export interface CreateItemInput {
+  menu_id: string;
+  category_id?: string;
+  name: string;
+  description?: string;
+  price: number;
+  is_available: boolean;
+}
+
+export interface UpdateItemInput {
+  category_id?: string | null;
+  name?: string;
+  description?: string;
+  price?: number;
+  is_available?: boolean;
+}
+
+/** Local image picker result before upload. */
+export interface PickedImage {
+  uri: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  fileName?: string;
+}
