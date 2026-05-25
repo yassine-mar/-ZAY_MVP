@@ -48,3 +48,38 @@ export function formatPrice(amount: number): string {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+/** Format an ISO timestamp as "Jan 6, 14:32". */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * "5 min ago", "2 h ago", "Yesterday", "3 d ago". Falls back to date.
+ */
+export function formatRelative(iso: string): string {
+  const now = Date.now();
+  const t = new Date(iso).getTime();
+  const diffMin = Math.floor((now - t) / 60_000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin} min ago`;
+
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} h ago`;
+
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return 'Yesterday';
+  if (diffDay < 7) return `${diffDay} d ago`;
+
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  });
+}

@@ -1,5 +1,6 @@
 import { useAuth } from '@/hooks/useAuth';
 import { AuthStack } from './AuthStack';
+import { CustomerRoot } from './CustomerRoot';
 import { SplashScreen } from '@/screens/shared/SplashScreen';
 import { AuthenticatedPlaceholder } from '@/screens/AuthenticatedPlaceholder';
 
@@ -10,15 +11,16 @@ import { AuthenticatedPlaceholder } from '@/screens/AuthenticatedPlaceholder';
  * not per-screen HOCs. A logged-out user literally cannot navigate to
  * an authenticated screen — that screen isn't mounted in the tree.
  *
- * When CustomerTabs / SellerTabs / PendingSellerStack ship, this is the
- * one place to extend the branching.
+ * Seller (and pending/rejected) branches land in a later slice.
  */
 export function RootNavigator() {
-  const { isHydrated, isAuthenticated } = useAuth();
+  const { isHydrated, isAuthenticated, user } = useAuth();
 
   if (!isHydrated)      return <SplashScreen />;
   if (!isAuthenticated) return <AuthStack />;
 
-  // TODO(post-auth): branch on user.role + seller_profile.status
+  if (user?.role === 'customer') return <CustomerRoot />;
+
+  // TODO(seller-tree): branch on seller_profile.status
   return <AuthenticatedPlaceholder />;
 }

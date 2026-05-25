@@ -1,7 +1,9 @@
 import { authApi } from '@/api/auth.api';
 import { usersApi } from '@/api/users.api';
 import { useAuthStore } from '@/store/auth.store';
+import { useCartStore } from '@/store/cart.store';
 import { tokenStorage } from '@/services/storage.service';
+import { socketService } from '@/services/socket.service';
 import { queryClient } from '@/lib/queryClient';
 import type {
   LoginInput,
@@ -38,6 +40,7 @@ export const authService = {
 
       const { user } = await usersApi.getMe();
       useAuthStore.getState().setAuth(user, token);
+      void socketService.connect(token);
     } catch {
       // Token was rejected (401 already cleared it via the interceptor) or
       // network failed during cold start — treat as logged out.
@@ -52,26 +55,31 @@ export const authService = {
     const { user, access_token } = await authApi.login(input);
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
+    void socketService.connect(access_token);
   },
 
   async registerCustomer(input: RegisterCustomerInput): Promise<void> {
     const { user, access_token } = await authApi.registerCustomer(input);
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
+    void socketService.connect(access_token);
   },
 
   async registerSeller(input: RegisterSellerInput): Promise<void> {
     const { user, access_token } = await authApi.registerSeller(input);
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
+    void socketService.connect(access_token);
   },
 
   async logout(): Promise<void> {
     // Fire the server logout but don't block on it — token is invalidated
     // locally regardless. (Server-side logout is for FCM token cleanup.)
     void authApi.logout();
+    socketService.disconnect();
     await tokenStorage.delete();
     queryClient.clear();
+    useCartStore.getState().clear();
     useAuthStore.getState().reset();
   },
 };
