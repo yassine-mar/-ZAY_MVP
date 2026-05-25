@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Notifications from 'expo-notifications';
 import Toast from 'react-native-toast-message';
 import {
   useFonts,
@@ -17,6 +18,7 @@ import { PlayfairDisplay_700Bold } from '@expo-google-fonts/playfair-display';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { navigationRef, deepLinkQueue } from '@/navigation/navigationRef';
 import { authService } from '@/services/auth.service';
+import { notificationsService } from '@/services/notifications.service';
 import { queryClient } from '@/lib/queryClient';
 import { colors } from '@/theme';
 
@@ -38,6 +40,41 @@ export default function App() {
   useEffect(() => {
     authService.hydrate().finally(() => setAuthHydrated(true));
   }, []);
+
+  /* ── Notification handlers (foreground + tap + cold-start) ─────────────── */
+  const responseSubRef = useRef<Notifications.Subscription | null>(null);
+  const receivedSubRef = useRef<Notifications.Subscription | null>(null);
+
+  useEffect(() => {
+    if (!authHydrated) return;
+
+    // 1. Cold start — user opened the app by tapping a notification while
+    //    it was killed. Route once the navigator is ready.
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const payload = extractPayload(response);
+      notificationsService.routeToNotification(payload);
+    });
+
+    // 2. Warm tap — user tapped a notification with app backgrounded.
+    responseSubRef.current = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const payload = extractPayload(response);
+        notificationsService.routeToNotification(payload);
+      },
+    );
+
+    // 3. Foreground arrival — invalidate the inbox/badge so the bell
+    //    badge updates. (The OS still shows the banner — see service.)
+    receivedSubRef.current = Notifications.addNotificationReceivedListener(() => {
+      notificationsService.refreshUnreadCount();
+    });
+
+    return () => {
+      responseSubRef.current?.remove();
+      receivedSubRef.current?.remove();
+    };
+  }, [authHydrated]);
 
   // Hide the native splash once everything that needs to be ready, is ready.
   // Both fonts AND auth hydration must complete before we render — otherwise
@@ -68,6 +105,17 @@ export default function App() {
       </QueryClientProvider>
     </SafeAreaProvider>
   );
+}
+
+function extractPayload(response: Notifications.NotificationResponse) {
+  const raw = response.notification.request.content.data ?? {};
+  return {
+    type: typeof raw.type === 'string' ? raw.type : undefined,
+    order_id: typeof raw.order_id === 'string' && raw.order_id !== ''
+      ? (raw.order_id as string)
+      : null,
+    data: raw as Record<string, unknown>,
+  };
 }
 
 const styles = StyleSheet.create({

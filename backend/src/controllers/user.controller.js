@@ -36,6 +36,11 @@ const updateFcmToken = async (req, res) => {
   sendOk(res, 'Device token updated');
 };
 
+const clearFcmToken = async (req, res) => {
+  await UserService.clearFcmToken(req.user.id);
+  sendOk(res, 'Device token cleared');
+};
+
 const deleteMe = async (req, res) => {
   await UserService.deleteMe(req.user.id);
   sendOk(res, 'Account deleted');
@@ -47,5 +52,6 @@ module.exports = {
   changePassword,
   uploadAvatar,
   updateFcmToken,
+  clearFcmToken,
   deleteMe,
 };

@@ -23,12 +23,14 @@ import { ErrorScreen } from '@/components/feedback/ErrorScreen';
 import { browseApi } from '@/api/browse.api';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart } from '@/hooks/useCart';
+import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 import { colors, radii, spacing } from '@/theme';
 import type { HomeStackScreenProps } from '@/types/navigation.types';
 
 export function HomeScreen({ navigation }: HomeStackScreenProps<'Home'>) {
   const { user } = useAuth();
   const { itemCount } = useCart();
+  const { count: unreadCount } = useUnreadNotifications();
   const firstName = user?.name.split(' ')[0] ?? 'there';
 
   /* Three parallel queries — load in parallel, render independently. */
@@ -64,7 +66,9 @@ export function HomeScreen({ navigation }: HomeStackScreenProps<'Home'>) {
         <Header
           firstName={firstName}
           cartCount={itemCount}
+          unreadCount={unreadCount}
           onCart={() => navigation.navigate('Cart')}
+          onNotifications={() => navigation.navigate('Notifications')}
         />
         <ErrorScreen onRetry={onRefresh} />
       </SafeScreen>
@@ -76,7 +80,9 @@ export function HomeScreen({ navigation }: HomeStackScreenProps<'Home'>) {
       <Header
         firstName={firstName}
         cartCount={itemCount}
+        unreadCount={unreadCount}
         onCart={() => navigation.navigate('Cart')}
+        onNotifications={() => navigation.navigate('Notifications')}
       />
 
       <ScrollView
@@ -212,11 +218,15 @@ export function HomeScreen({ navigation }: HomeStackScreenProps<'Home'>) {
 function Header({
   firstName,
   cartCount,
+  unreadCount,
   onCart,
+  onNotifications,
 }: {
   firstName: string;
   cartCount: number;
+  unreadCount: number;
   onCart: () => void;
+  onNotifications: () => void;
 }) {
   return (
     <View style={styles.header}>
@@ -226,9 +236,10 @@ function Header({
       </View>
       <View style={styles.headerActions}>
         <IconButton
-          onPress={() => undefined}
-          accessibilityLabel="Notifications"
+          onPress={onNotifications}
+          accessibilityLabel={`Notifications, ${unreadCount} unread`}
           variant="tinted"
+          badge={unreadCount}
         >
           <Bell size={20} color={colors.text.primary} strokeWidth={1.8} />
         </IconButton>

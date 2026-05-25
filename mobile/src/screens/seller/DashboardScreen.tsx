@@ -15,12 +15,14 @@ import {
   TrendingUp,
   ArrowRight,
   Inbox,
+  Bell,
 } from 'lucide-react-native';
 
 import { SafeScreen } from '@/components/ui/SafeScreen';
 import { Text } from '@/components/ui/Text';
 import { Skeleton } from '@/components/ui/SkeletonLoader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { IconButton } from '@/components/ui/IconButton';
 import { StatCard } from '@/components/domain/StatCard';
 import { AvailabilityToggle } from '@/components/domain/AvailabilityToggle';
 import { IncomingOrderCard } from '@/components/domain/IncomingOrderCard';
@@ -32,12 +34,14 @@ import { sellerOrdersApi } from '@/api/sellerOrders.api';
 import { formatPrice } from '@/utils/format';
 import { parseApiError } from '@/utils/error';
 import { useAuthStore } from '@/store/auth.store';
+import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 import { colors, radii, spacing } from '@/theme';
 import type { SellerTabsScreenProps } from '@/types/navigation.types';
 
 export function DashboardScreen({ navigation }: SellerTabsScreenProps<'DashboardTab'>) {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { count: unreadCount } = useUnreadNotifications();
   const profile = user?.seller_profile ?? null;
   const firstName = user?.name.split(' ')[0] ?? '';
 
@@ -97,6 +101,19 @@ export function DashboardScreen({ navigation }: SellerTabsScreenProps<'Dashboard
             {profile?.business_name ?? firstName}
           </Text>
         </View>
+        <IconButton
+          onPress={() =>
+            navigation
+              .getParent()
+              // @ts-expect-error — SellerRoot.Notifications is one level above this tab
+              ?.navigate('Notifications')
+          }
+          accessibilityLabel={`Notifications, ${unreadCount} unread`}
+          variant="tinted"
+          badge={unreadCount}
+        >
+          <Bell size={20} color={colors.text.primary} strokeWidth={1.8} />
+        </IconButton>
         <AvailabilityToggle
           isOpen={profile?.is_open ?? false}
           onToggle={(next) => toggleMutation.mutate(next)}

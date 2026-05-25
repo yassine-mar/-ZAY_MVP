@@ -120,6 +120,10 @@ const updateFcmToken = async (userId, fcmToken) => {
   await UserModel.updateFcmToken(userId, fcmToken);
 };
 
+const clearFcmToken = async (userId) => {
+  await UserModel.clearFcmToken(userId);
+};
+
 /* ── Account deletion ──────────────────────────────────────────────────── */
 
 /**
@@ -164,6 +168,7 @@ module.exports = {
   changePassword,
   uploadAvatar,
   updateFcmToken,
+  clearFcmToken,
   deleteMe,
   ALLOWED_PROFILE_FIELDS,
 };

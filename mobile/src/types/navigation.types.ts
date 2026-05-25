@@ -46,6 +46,7 @@ export type CustomerRootParamList = {
   Tabs: undefined;
   Cart: undefined;
   Checkout: undefined;
+  Notifications: undefined;
 };
 
 /* ── Seller (authenticated, approved) navigation tree ─────────────────── */
@@ -75,6 +76,7 @@ export type SellerTabsParamList = {
 
 export type SellerRootParamList = {
   Tabs: undefined;
+  Notifications: undefined;
 };
 
 export type PendingSellerStackParamList = {

@@ -13,17 +13,31 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "ma.zay.mobile"
+      "bundleIdentifier": "ma.zay.mobile",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
       "package": "ma.zay.mobile",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E8520A"
-      }
+      },
+      "permissions": ["NOTIFICATIONS", "VIBRATE", "WAKE_LOCK"]
     },
     "plugins": [
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#E8520A",
+          "sounds": []
+        }
+      ]
     ],
     "extra": {
       "eas": {}

@@ -9,4 +9,14 @@ export const usersApi = {
 
   setFcmToken: (fcm_token: string) =>
     apiClient.patch<unknown, { ok: true }>('/users/me/fcm-token', { fcm_token }),
+
+  /**
+   * Best-effort: clears the FCM token server-side so this device stops
+   * receiving pushes after logout. Swallows errors — the local session
+   * tears down regardless.
+   */
+  clearFcmToken: () =>
+    apiClient
+      .delete<unknown, { ok: true }>('/users/me/fcm-token')
+      .catch(() => ({ ok: true as const })),
 };

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useCartStore } from '@/store/cart.store';
 import { tokenStorage } from '@/services/storage.service';
 import { socketService } from '@/services/socket.service';
+import { notificationsService } from '@/services/notifications.service';
 import { queryClient } from '@/lib/queryClient';
 import type {
   LoginInput,
@@ -41,6 +42,9 @@ export const authService = {
       const { user } = await usersApi.getMe();
       useAuthStore.getState().setAuth(user, token);
       void socketService.connect(token);
+      // Silently re-register the FCM token if permission is already granted.
+      // (User-facing permission prompts live in screen-level flows.)
+      void notificationsService.registerTokenIfPossible();
     } catch {
       // Token was rejected (401 already cleared it via the interceptor) or
       // network failed during cold start — treat as logged out.
@@ -56,6 +60,7 @@ export const authService = {
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
     void socketService.connect(access_token);
+    void notificationsService.registerTokenIfPossible();
   },
 
   async registerCustomer(input: RegisterCustomerInput): Promise<void> {
@@ -63,6 +68,7 @@ export const authService = {
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
     void socketService.connect(access_token);
+    void notificationsService.registerTokenIfPossible();
   },
 
   async registerSeller(input: RegisterSellerInput): Promise<void> {
@@ -70,12 +76,14 @@ export const authService = {
     await tokenStorage.set(access_token);
     useAuthStore.getState().setAuth(user, access_token);
     void socketService.connect(access_token);
+    void notificationsService.registerTokenIfPossible();
   },
 
   async logout(): Promise<void> {
-    // Fire the server logout but don't block on it — token is invalidated
-    // locally regardless. (Server-side logout is for FCM token cleanup.)
+    // Fire all best-effort cleanup in parallel — local teardown proceeds
+    // regardless of any individual failure.
     void authApi.logout();
+    void notificationsService.clearLocalToken();
     socketService.disconnect();
     await tokenStorage.delete();
     queryClient.clear();

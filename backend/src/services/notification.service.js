@@ -2,6 +2,7 @@
 
 const NotificationModel = require('../models/notification.model');
 const UserModel = require('../models/user.model');
+const { query } = require('../models/base.model');
 const logger = require('../utils/logger');
 
 /**
@@ -129,6 +130,57 @@ const notifySellerSuspended = ({ userId, reason }) =>
     body: reason || 'Your seller account has been suspended. Contact support.',
   });
 
+/* ── Admin fan-out ─────────────────────────────────────────────────────── */
+
+/**
+ * Return user IDs of every active admin. Cached for 60s in-process to keep
+ * notification fan-out cheap. Not Redis-backed (single-host MVP); revisit
+ * when we scale to multiple Node instances.
+ */
+let adminIdCache = { ids: null, expiresAt: 0 };
+const ADMIN_CACHE_TTL_MS = 60_000;
+
+const getActiveAdminIds = async () => {
+  const now = Date.now();
+  if (adminIdCache.ids && adminIdCache.expiresAt > now) return adminIdCache.ids;
+  const result = await query(
+    `SELECT id FROM users
+     WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL`
+  );
+  const ids = result.rows.map((r) => r.id);
+  adminIdCache = { ids, expiresAt: now + ADMIN_CACHE_TTL_MS };
+  return ids;
+};
+
+/** Invalidate the admin cache when admin roster changes (suspend/grant). */
+const invalidateAdminCache = () => {
+  adminIdCache = { ids: null, expiresAt: 0 };
+};
+
+const fanOutToAdmins = async (template) => {
+  const ids = await getActiveAdminIds();
+  // Fire-and-forget per admin; one failure shouldn't block the others.
+  await Promise.allSettled(
+    ids.map((userId) => sendNotification({ userId, ...template }))
+  );
+};
+
+const notifyAdminsSellerRegistered = ({ businessName, sellerId }) =>
+  fanOutToAdmins({
+    type: 'admin_seller_registered',
+    title: 'New seller awaiting review',
+    body: `${businessName} just applied. Review their application in the dashboard.`,
+    data: { seller_id: sellerId },
+  });
+
+const notifyAdminsOrderEscalation = ({ orderId, reason }) =>
+  fanOutToAdmins({
+    type: 'admin_order_escalation',
+    title: 'Order needs review',
+    body: reason || 'An order requires admin attention.',
+    orderId,
+  });
+
 module.exports = {
   sendNotification,
   notifyOrderPlaced,
@@ -137,4 +189,7 @@ module.exports = {
   notifySellerApproved,
   notifySellerRejected,
   notifySellerSuspended,
+  notifyAdminsSellerRegistered,
+  notifyAdminsOrderEscalation,
+  invalidateAdminCache,
 };
